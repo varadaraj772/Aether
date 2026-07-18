@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aether - Search your Mac by meaning</title>
+  <meta name="description" content="Local semantic file search for macOS. Find files by name, content, or meaning - nothing leaves your machine." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: "#121c1b",
+            soft: "#5c6a68",
+            line: "#d7ddd9",
+            page: "#f4f1eb",
+            panel: "#ffffff",
+            wash: "#e8eef0",
+            accent: "#0e6a62",
+            "accent-dark": "#0a4e48",
+          },
+          fontFamily: {
+            display: ['Syne', 'sans-serif'],
+            sans: ['Figtree', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+</head>
+<body class="bg-page font-sans text-ink antialiased">
+  <header class="border-b border-line bg-gradient-to-b from-wash to-page">
+    <div class="mx-auto max-w-5xl px-6 md:px-10">
+      <div class="pb-14 pt-20 md:pb-16 md:pt-28">
+        <p class="font-display text-6xl font-extrabold leading-none tracking-tight md:text-7xl">
+          Aether
+        </p>
+        <h1 class="mt-8 max-w-2xl font-display text-3xl font-bold leading-snug tracking-tight md:text-4xl">
+          Search your Mac by meaning.
+        </h1>
+        <p class="mt-6 max-w-xl text-lg leading-relaxed text-soft md:text-xl">
+          Local semantic file search. Find the doc you remember writing - not the filename you forgot. Nothing leaves your machine.
+        </p>
+        <div class="mt-10 flex flex-wrap items-center gap-5">
+          <a
+            href="#get"
+            class="inline-flex h-12 items-center rounded-md bg-accent px-6 text-sm font-semibold text-white transition hover:bg-accent-dark"
+          >
+            Get Aether for macOS
+          </a>
+          <a href="#features" class="text-sm font-semibold text-ink underline decoration-line underline-offset-4 transition hover:decoration-accent">
+            Explore features
+          </a>
+        </div>
+      </div>
+
+      <div class="overflow-hidden rounded-2xl border border-line bg-panel">
+        <div class="flex h-16 items-center gap-3 border-b border-line px-6">
+          <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/10 text-sm font-bold text-accent">⌕</span>
+          <p class="truncate text-lg text-soft">quarterly revenue notes</p>
+        </div>
+        <ul class="divide-y divide-line">
+          <li class="bg-accent/[0.07] px-6 py-5 md:grid md:grid-cols-12 md:items-baseline md:gap-8">
+            <p class="font-display text-base font-bold tracking-tight md:col-span-5">Q3-board-brief.pdf</p>
+            <p class="mt-2 text-base text-soft md:col-span-7 md:mt-0">…notes on revenue mix and pipeline for the board…</p>
+          </li>
+          <li class="px-6 py-5 md:grid md:grid-cols-12 md:items-baseline md:gap-8">
+            <p class="font-display text-base font-bold tracking-tight md:col-span-5">strategy-memo-march.md</p>
+            <p class="mt-2 text-base text-soft md:col-span-7 md:mt-0">Meaning match across folders - not just the filename</p>
+          </li>
+          <li class="px-6 py-5 md:grid md:grid-cols-12 md:items-baseline md:gap-8">
+            <p class="font-display text-base font-bold tracking-tight md:col-span-5">client-call-transcript.txt</p>
+            <p class="mt-2 text-base text-soft md:col-span-7 md:mt-0">Indexed locally on your Mac</p>
+          </li>
+        </ul>
+        <div class="flex h-12 items-center justify-between border-t border-line px-6 text-sm text-soft">
+          <span>⌘⇧Space to search</span>
+          <span>100% local</span>
+        </div>
+      </div>
+
+      <div class="h-20 md:h-28"></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="border-b border-line py-24 md:py-32">
+      <div class="mx-auto max-w-5xl px-6 md:px-10">
+        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-accent">The problem</p>
+        <h2 class="mt-4 max-w-2xl font-display text-3xl font-bold leading-tight tracking-tight md:text-4xl">
+          You remember the idea. Spotlight remembers the name.
+        </h2>
+        <div class="mt-12 grid gap-10 md:grid-cols-2 md:gap-16">
+          <p class="text-lg leading-relaxed text-soft">
+            macOS Spotlight is excellent when you know the filename. It falls apart when you remember a phrase, a topic, or “that PDF about the board deck” - and cloud AI search usually means uploading your files to someone else’s servers.
+          </p>
+          <p class="text-lg leading-relaxed text-soft">
+            Aether is built for that gap: index folders on your Mac, then search by meaning, keywords, or filename. Embeddings and ranking stay on-device. Your library never leaves the machine.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section id="how" class="border-b border-line bg-wash py-24 md:py-32">
+      <div class="mx-auto max-w-5xl px-6 md:px-10">
+        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-accent">How it works</p>
+        <h2 class="mt-4 max-w-xl font-display text-3xl font-bold leading-tight tracking-tight md:text-4xl">
+          Add folders. Index once. Search anytime.
+        </h2>
+        <p class="mt-6 max-w-xl text-lg leading-relaxed text-soft">
+          Aether runs as a native macOS app with a local Python search engine. You choose what to index. Everything else stays out.
+        </p>
+
+        <ol class="mt-16 grid list-none gap-12 md:grid-cols-3 md:gap-10">
+          <li class="border-t border-line pt-8">
+            <p class="text-sm font-bold tracking-[0.14em] text-accent">01</p>
+            <h3 class="mt-4 font-display text-xl font-bold tracking-tight">Add folders</h3>
+            <p class="mt-4 text-base leading-relaxed text-soft">
+              Pick project directories, Documents, Downloads - whatever you actually search. Drag and drop works. Files stay in place; Aether only reads them to build an index.
+            </p>
+          </li>
+          <li class="border-t border-line pt-8">
+            <p class="text-sm font-bold tracking-[0.14em] text-accent">02</p>
+            <h3 class="mt-4 font-display text-xl font-bold tracking-tight">Index locally</h3>
+            <p class="mt-4 text-base leading-relaxed text-soft">
+              Content is chunked and embedded with a local model. Progress shows in the app; you can cancel anytime. The index lives in <span class="font-medium text-ink">~/.aether</span> on your disk.
+            </p>
+          </li>
+          <li class="border-t border-line pt-8">
+            <p class="text-sm font-bold tracking-[0.14em] text-accent">03</p>
+            <h3 class="mt-4 font-display text-xl font-bold tracking-tight">Search by meaning</h3>
+            <p class="mt-4 text-base leading-relaxed text-soft">
+              Press <span class="font-medium text-ink">⌘⇧Space</span> for the launcher, or open the full workspace. Type an idea, a phrase, or a name - open, preview, or Quick Look the right file.
+            </p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="features" class="border-b border-line py-24 md:py-32">
+      <div class="mx-auto max-w-5xl px-6 md:px-10">
+        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Features</p>
+        <h2 class="mt-4 max-w-xl font-display text-3xl font-bold leading-tight tracking-tight md:text-4xl">
+          Everything you need to find files - without the cloud.
+        </h2>
+        <p class="mt-6 max-w-2xl text-lg leading-relaxed text-soft">
+          Aether is not a thin chat wrapper. It is a full local search product: launcher, workspace, indexing, and privacy controls designed for daily use.
+        </p>
+
+        <div class="mt-20 space-y-20 md:space-y-28">
+          <article class="grid gap-6 border-t border-line pt-12 md:grid-cols-12 md:gap-10">
+            <h3 class="font-display text-2xl font-bold tracking-tight md:col-span-4">
+              Semantic + keyword search
+            </h3>
+            <div class="space-y-4 text-base leading-relaxed text-soft md:col-span-8 md:text-lg">
+              <p>
+                Queries are embedded with a local model, then ranked with filename matches, path signals, content keywords, and light synonym expansion - so “invoice” can still surface a receipt, while exact names stay on top when they should.
+              </p>
+              <p>
+                Scope search to one folder or your whole library. Filter by documents, code, data, or images. Sort by relevance, name, or date.
+              </p>
+            </div>
+          </article>
+
+          <article class="grid gap-6 border-t border-line pt-12 md:grid-cols-12 md:gap-10">
+            <h3 class="font-display text-2xl font-bold tracking-tight md:col-span-4">
+              Launcher &amp; workspace
+            </h3>
+            <div class="space-y-4 text-base leading-relaxed text-soft md:col-span-8 md:text-lg">
+              <p>
+                The launcher is a compact overlay for fast open-and-go search: keyboard navigation, recent queries, saved searches, and ⌘↩ to jump into the workspace with preview.
+              </p>
+              <p>
+                The workspace gives you three panes - folders, results, and preview - for deeper browsing. Select a hit to read a snippet with query highlighting, jump to related files, or press Space for native Quick Look.
+              </p>
+            </div>
+          </article>
+
+          <article class="grid gap-6 border-t border-line pt-12 md:grid-cols-12 md:gap-10">
+            <h3 class="font-display text-2xl font-bold tracking-tight md:col-span-4">
+              Broad file support
+            </h3>
+            <div class="space-y-4 text-base leading-relaxed text-soft md:col-span-8 md:text-lg">
+              <p>
+                Index PDFs, Word, Pages, text, Markdown, spreadsheets, slides, email (.eml), and common source files - Swift, Python, TypeScript, HTML, Rust, Go, and more.
+              </p>
+              <p>
+                Images (PNG/JPEG) go through on-device OCR. Scanned PDFs fall back to OCR when there is no extractable text layer, so screenshots and scans can still be found.
+              </p>
+            </div>
+          </article>
+
+          <article class="grid gap-6 border-t border-line pt-12 md:grid-cols-12 md:gap-10">
+            <h3 class="font-display text-2xl font-bold tracking-tight md:col-span-4">
+              Indexing you control
+            </h3>
+            <div class="space-y-4 text-base leading-relaxed text-soft md:col-span-8 md:text-lg">
+              <p>
+                Index one folder or everything. Re-index when you need a clean pass. Background indexing keeps search available while work runs. Cancel anytime. Status shows progress and how many files were skipped when extraction fails.
+              </p>
+              <p>
+                Optional live sync watches folders for changes. Settings show index health per folder - file counts, chunk counts, and last indexed time - plus exclude rules for paths you never want scanned.
+              </p>
+            </div>
+          </article>
+
+          <article class="grid gap-6 border-t border-line pt-12 md:grid-cols-12 md:gap-10">
+            <h3 class="font-display text-2xl font-bold tracking-tight md:col-span-4">
+              Related files &amp; duplicates
+            </h3>
+            <div class="space-y-4 text-base leading-relaxed text-soft md:col-span-8 md:text-lg">
+              <p>
+                Open a result and Aether suggests related files from the same semantic neighborhood - useful when the right note is near the one you found, not identical to your query.
+              </p>
+              <p>
+                Duplicate detection groups exact copies and near-duplicates from the index, so you can clean up sprawling Downloads folders without uploading anything.
+              </p>
+            </div>
+          </article>
+
+          <article class="grid gap-6 border-t border-line pt-12 md:grid-cols-12 md:gap-10">
+            <h3 class="font-display text-2xl font-bold tracking-tight md:col-span-4">
+              Privacy by architecture
+            </h3>
+            <div class="space-y-4 text-base leading-relaxed text-soft md:col-span-8 md:text-lg">
+              <p>
+                No account. No telemetry. No cloud sync of your corpus. The embedding model runs on your Mac. Index data stays under <span class="font-medium text-ink">~/.aether</span>.
+              </p>
+              <p>
+                A menu bar item keeps Aether one click away. Onboarding and Settings stay honest about what is local - including model download on first launch.
+              </p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="border-b border-line bg-wash py-24 md:py-32">
+      <div class="mx-auto max-w-5xl px-6 md:px-10">
+        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Supported types</p>
+        <h2 class="mt-4 max-w-xl font-display text-3xl font-bold leading-tight tracking-tight md:text-4xl">
+          Built for the files you already have.
+        </h2>
+        <div class="mt-14 grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="border-t border-line pt-6">
+            <h3 class="font-display text-lg font-bold tracking-tight">Documents</h3>
+            <p class="mt-3 text-base leading-relaxed text-soft">PDF, DOCX, Pages, TXT, Markdown, EML</p>
+          </div>
+          <div class="border-t border-line pt-6">
+            <h3 class="font-display text-lg font-bold tracking-tight">Office &amp; data</h3>
+            <p class="mt-3 text-base leading-relaxed text-soft">XLSX, PPTX, CSV, JSON, LOG</p>
+          </div>
+          <div class="border-t border-line pt-6">
+            <h3 class="font-display text-lg font-bold tracking-tight">Code</h3>
+            <p class="mt-3 text-base leading-relaxed text-soft">Swift, Python, JS/TS, HTML/CSS, Rust, Go, and more</p>
+          </div>
+          <div class="border-t border-line pt-6">
+            <h3 class="font-display text-lg font-bold tracking-tight">Images</h3>
+            <p class="mt-3 text-base leading-relaxed text-soft">PNG, JPG, JPEG with on-device OCR</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="get" class="py-24 md:py-32">
+      <div class="mx-auto max-w-5xl px-6 md:px-10">
+        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Get started</p>
+        <h2 class="mt-4 max-w-lg font-display text-3xl font-bold leading-tight tracking-tight md:text-5xl">
+          Keep your files. Find them anyway.
+        </h2>
+        <p class="mt-6 max-w-xl text-lg leading-relaxed text-soft">
+          Aether is a macOS app. Set up the local Python backend once with the project script, then run from Xcode - or package a Release build for your own machine. First launch downloads the search model; later launches use your local cache.
+        </p>
+        <div class="mt-10 flex flex-wrap items-center gap-5">
+          <a
+            href="../README.md"
+            class="inline-flex h-12 items-center rounded-md bg-accent px-6 text-sm font-semibold text-white transition hover:bg-accent-dark"
+          >
+            Open the README
+          </a>
+          <a href="../Scripts/QA_SMOKE_CHECKLIST.txt" class="text-sm font-semibold text-ink underline decoration-line underline-offset-4 transition hover:decoration-accent">
+            Smoke checklist
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="border-t border-line py-8">
+    <div class="mx-auto flex max-w-5xl flex-col gap-3 px-6 text-sm text-soft sm:flex-row sm:items-center sm:justify-between md:px-10">
+      <p>Aether · Local semantic search for macOS</p>
+      <p>Nothing leaves your machine</p>
+    </div>
+  </footer>
+</body>
+</html>

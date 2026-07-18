@@ -1,0 +1,221 @@
+AETHER - PRODUCT OVERVIEW
+=========================
+
+WHAT IT IS
+----------
+
+Aether is a local-first semantic file search app for macOS. You point it at folders
+on your Mac, it indexes file content on your machine, and you search by filename,
+keywords, or meaning - like Spotlight, but tuned for "find the doc where I wrote
+about X" rather than only exact name matches.
+
+Nothing is uploaded to the cloud. Index data lives in ~/.aether/; search runs
+entirely on your Mac.
+
+
+WHY IT EXISTS
+-------------
+
+macOS Spotlight is fast for names and metadata, but weak when you remember ideas
+or phrases, not filenames. Cloud tools (Notion AI, Google Drive search, etc.)
+require uploading your files.
+
+Aether fills the gap:
+
+  Problem                              Aether's approach
+  -----------------------------------  ----------------------------------------
+  Know what file was about, not name     Semantic embeddings + keyword scoring
+  Privacy / offline work                 100% local indexing and search
+  Scattered project folders              Add multiple folders, search all at once
+  Quick access                           Spotlight-style launcher + full workspace
+
+It is built for people with lots of local documents - researchers, developers,
+writers, anyone drowning in PDFs, notes, and project files.
+
+
+HOW IT WORKS (HIGH LEVEL)
+-------------------------
+
+  SwiftUI app (Aether/)  <---- JSON-RPC stdin/stdout ---->  Python backend (bridge.py)
+                                                                      |
+                    +-------------------------+-------------------------+
+                    |                         |                         |
+               indexer.py                 search.py               folders.py
+            (read & chunk files)   (vector + keyword search)   (config, recents)
+                    |                         |
+                    +------------+------------+
+                                 |
+                    LanceDB (~/.aether/db/)
+                    + sentence-transformers (all-MiniLM-L6-v2)
+
+1. Index - Files are read, split into chunks, embedded into vectors, stored in LanceDB.
+2. Search - Your query is embedded; nearest chunks are found, then re-ranked with
+   keyword + filename boosts.
+3. UI - SwiftUI talks to Python over a simple JSON line protocol; no network.
+
+
+TWO MODES
+---------
+
+Launcher (compact)
+  Spotlight-style overlay: dimmed screen, floating search card, keyboard-driven
+  results. Best for fast lookup and open.
+
+Workspace (full)
+  Three-column layout:
+    - Folders  - Manage indexed folders, browse files, smart collections
+    - Results  - Search hits with filter/sort
+    - Preview  - Snippet, highlighted query, related files, open/reveal/copy
+
+Switch with Cmd+Shift+Space, Esc, or the "Launcher" button.
+
+
+CURRENT FEATURES
+----------------
+
+Search
+  - Semantic + keyword hybrid scoring (75% meaning, 25% keyword/filename)
+  - Debounced live search as you type
+  - Filter by type: All, Documents, Code, Data, Images
+  - Sort by relevance, name, or date modified
+  - Match snippets with query highlighting
+  - Recent searches (with remove) and saved searches (bookmark)
+
+Indexing
+  - Add folders via picker or drag & drop
+  - Index selected folder / index all
+  - Incremental indexing (skips unchanged files by mtime)
+  - Re-index (force)
+  - Progress bar + cancel
+  - Auto-index on launch (Settings)
+  - macOS notification when indexing completes (optional)
+  - Security-scoped bookmarks so folders stay accessible across restarts
+
+Supported file types
+  PDF, DOCX, Pages, TXT, MD, JSON, CSV, LOG, XLSX, PPTX, PNG, JPG/JPEG,
+  Swift, Python, JavaScript/TypeScript, HTML/CSS, Rust, Go, Java, Kotlin,
+  C/C++, Objective-C, Ruby, PHP, shell, YAML, TOML, XML, SQL, R, Scala,
+  Vue, Svelte, and EML
+  PNG/JPG/JPEG: text extracted via RapidOCR during indexing
+  PDF: embedded text via pypdf with RapidOCR fallback for scanned pages
+  (Auto-skips .git, node_modules, venv, etc.)
+
+Folder sidebar
+  - Root folder list with indexed / not-indexed status
+  - Double-click to browse inside a folder
+  - Smart collections: Recently modified, Large files, Not indexed, Documents, Images
+  - Context menu: Browse, Index, Re-index, Remove
+
+Preview & actions
+  - Inline preview with query highlighting
+  - Image preview (PNG/JPG) with OCR text in preview/index
+  - Native Quick Look preview with Space
+  - Related files (semantic neighbors)
+  - Open in default app, reveal in Finder, copy path
+  - Double-click to open
+
+Duplicate detection
+  - Exact duplicates (content fingerprint)
+  - Near duplicates (embedding similarity >= ~92%)
+  - Accessible from menu / launcher
+
+Live sync
+  - Optional file watcher re-indexes changed files and removes deleted ones
+
+Privacy & reliability
+  - Privacy sheet: local-only, no telemetry
+  - Onboarding on first launch
+  - Backend auto-recovery if Python process crashes
+  - Clear warmup status (starting / downloading / loading model) + Retry on failure
+  - Mid-index crash clears indexing state and prompts re-index
+  - Settings: auto-index, notifications, backend status + Retry
+  - Background indexing keeps search responsive
+  - Phase 1 package script + QA smoke checklist (venv still external)
+
+Keyboard shortcuts
+  Cmd+Shift+Space  - Toggle launcher / hide window
+  Esc              - Back to launcher (workspace)
+  Up / Down        - Navigate results
+  Space            - Quick Look selected file
+  Return           - Open file
+  Cmd+Return       - Open in workspace with preview
+
+
+DATA & PRIVACY
+--------------
+
+  ~/.aether/folders.json  - Folder list, recent/saved searches, metadata
+  ~/.aether/db/           - LanceDB vector index
+  App UserDefaults        - Bookmarks, onboarding, settings
+
+No cloud, no analytics, no account. Embeddings are computed locally for search only.
+
+
+TECH STACK
+----------
+
+  UI       - SwiftUI, macOS 26+, glass-style launcher
+  Backend  - Python 3.10+, LanceDB, sentence-transformers
+  Bridge   - JSON-RPC over stdin/stdout
+  Model    - all-MiniLM-L6-v2 (~80MB, loads on first search)
+
+
+LIMITATIONS TODAY
+-----------------
+
+  - First launch is slow - embedding model download + warmup (needs network once)
+  - Phase 1 packaging copies Backend/*.py into the app; Python venv / runtime
+    is still external (./Scripts/setup-backend.sh or AETHER_PYTHON)
+  - App is not notarized by project scripts - Developer ID + notarytool are
+    operator prerequisites if you distribute outside Gatekeeper workarounds
+  - Pages files - exported via AppleScript to PDF to text (needs Pages installed)
+  - Duplicate scan - default cap 2000 files (configurable via max_files)
+  - Scanned PDF OCR needs pypdfium2 installed in the backend venv
+
+
+SHIPPED IN PHASES 1-3
+---------------------
+
+  - Model warmup status + Retry on failure; mid-index crash recovery messaging
+  - package-app.sh, QA smoke checklist, notarization prerequisites in README
+  - Menu bar status item (Show Launcher / Workspace / Duplicates / Quit)
+  - Index health in Settings (counts, last_indexed, Refresh)
+  - User-configurable exclude paths (Settings + backend folders.json)
+  - Clearer Add -> Index -> Search empty states
+  - Ranking: path-segment + recently-opened boosts; light synonym expansion
+  - This Folder / All Folders scope chip (⌥⌘F)
+  - Failed-doc count in index stats (“N files skipped”)
+
+
+FUTURE SCOPE
+------------
+
+Near term (polish & ship)
+  - Bundled Python runtime - install-and-run without setup-backend.sh
+  - Signed / notarized distribution pipeline (operator runs notarytool)
+
+Search & index quality
+  - Further ranking tuning - open-recently signals beyond last-20 list
+  - Richer synonym / query expansion
+
+UX
+  - Batch actions - multi-select results, bulk reveal/delete/tag
+  - Tags / smart folders - user-defined collections beyond built-in ones
+  - Export search results - CSV or "open all in Finder"
+  - Themes & accessibility - contrast, font size, reduced motion
+
+Power user
+  - CLI / Raycast / Alfred plugin - search from anywhere
+  - Spotlight importer - surface Aether results in system Spotlight
+  - Multi-machine - optional encrypted sync of index (still local-first)
+
+Enterprise-ish (if ever needed)
+  - Index scheduling - nightly re-index, low-power mode
+  - Audit log - what was indexed when (local only)
+
+
+ONE-LINE PITCH
+--------------
+
+Aether is a private, on-device "search by meaning" for your Mac files - Spotlight's
+speed with semantic recall, without sending anything to the cloud.

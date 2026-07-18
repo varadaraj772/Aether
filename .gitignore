@@ -1,0 +1,60 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Local tooling / agent artifacts
+.cursor/
+agent-transcripts/
+
+# Xcode
+build/
+.build/
+DerivedData/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+.env
+.env.*
+!.env.example
+*.egg-info/
+.eggs/
+dist/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log

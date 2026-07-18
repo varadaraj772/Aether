@@ -1,0 +1,49 @@
+Aether - 15-minute manual QA smoke checklist
+============================================
+
+Prerequisites
+  [ ] ./Scripts/setup-backend.sh completed (Python 3.10+)
+  [ ] App launches from Xcode or a Release build
+  [ ] Status reaches "Ready" (or "Loading search model…" then Ready)
+
+Backend start / model warmup (~2 min)
+  [ ] Status shows "Starting backend…" then "Loading search model…"
+      (or "Downloading search model…" on first launch)
+  [ ] Search field / status become interactive when Ready
+  [ ] If offline on first launch: error is actionable and Retry restarts backend
+
+Add folder (~1 min)
+  [ ] Add a small folder via picker (or drag & drop in workspace)
+  [ ] Folder appears in sidebar with not-indexed / indexed state
+
+Index (~3 min)
+  [ ] Index Selected (or Index All) starts; progress updates in status line
+  [ ] Progress bar moves; Cancel is available while indexing
+  [ ] Completion message lists chunks / skipped / updated as appropriate
+  [ ] Folder shows as indexed afterward
+
+Search (~2 min)
+  [ ] Type a query (≥2 chars) in launcher and workspace
+  [ ] Relevant hits appear; snippets highlight when applicable
+  [ ] Filter / sort still work in workspace
+
+Quick Look (~1 min)
+  [ ] Select a result, press Space - Quick Look opens
+  [ ] Space again (or close) dismisses Quick Look
+  [ ] Return opens the file in the default app
+
+Cancel index (~2 min)
+  [ ] Start indexing a larger folder
+  [ ] Tap Cancel mid-run
+  [ ] Status becomes "Indexing cancelled"; isIndexing clears (no stuck spinner)
+  [ ] Search still works on previously indexed content
+
+Crash / recovery (~3 min)
+  [ ] Start indexing, then kill the Python bridge process (or force-quit backend)
+  [ ] App clears indexing state; status mentions restart / incomplete indexing
+  [ ] Error / Retry offers re-index guidance
+  [ ] Retry (or auto-recovery) brings backend back to Ready
+  [ ] Re-index finishes successfully
+
+Pass criteria
+  No stuck "Indexing…" state, no frozen UI, search usable after recovery.
