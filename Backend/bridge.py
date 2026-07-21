@@ -210,7 +210,15 @@ def handle(request):
         recent_paths = args.get("recent_paths") or []
         if not isinstance(recent_paths, list):
             recent_paths = []
-        results = search(query, folder=folder, recent_paths=recent_paths)
+        recent_items = args.get("recent_items") or []
+        if not isinstance(recent_items, list):
+            recent_items = []
+        results = search(
+            query,
+            folder=folder,
+            recent_paths=recent_paths,
+            recent_items=recent_items,
+        )
         for item in results:
             item.pop("vector", None)
         return results

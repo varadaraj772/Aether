@@ -60,7 +60,8 @@ final class AppState: ObservableObject {
   /// True while an index job is outstanding (survives brief isIndexing clears on crash).
   private var indexInFlight = false
   private static let recentOpenedPathsKey = "recentOpenedPaths"
-  private static let maxRecentOpenedPaths = 20
+  private static let recentOpenedItemsKey = "recentOpenedItems"
+  private static let maxRecentOpenedItems = 100
 
   init() {
     folderStore.objectWillChange
@@ -73,17 +74,58 @@ final class AppState: ObservableObject {
       .store(in: &cancellables)
   }
 
-  private var recentOpenedPaths: [String] {
-    UserDefaults.standard.stringArray(forKey: Self.recentOpenedPathsKey) ?? []
+  private var recentOpenedItems: [RecentOpenedItem] {
+    get { loadRecentOpenedItems() }
+    set { saveRecentOpenedItems(newValue) }
+  }
+
+  private func loadRecentOpenedItems() -> [RecentOpenedItem] {
+    if let data = UserDefaults.standard.data(forKey: Self.recentOpenedItemsKey),
+       let items = try? JSONDecoder().decode([RecentOpenedItem].self, from: data)
+    {
+      return items
+    }
+
+    // Migrate legacy string list so existing open history is preserved.
+    let legacy = UserDefaults.standard.stringArray(forKey: Self.recentOpenedPathsKey) ?? []
+    guard !legacy.isEmpty else { return [] }
+    let now = Date()
+    let migrated: [RecentOpenedItem] = legacy.enumerated().map { index, path in
+      RecentOpenedItem(
+        path: path,
+        openCount: 1,
+        lastOpenedAt: now.addingTimeInterval(TimeInterval(-index))
+      )
+    }
+    saveRecentOpenedItems(migrated)
+    UserDefaults.standard.removeObject(forKey: Self.recentOpenedPathsKey)
+    return migrated
+  }
+
+  private func saveRecentOpenedItems(_ items: [RecentOpenedItem]) {
+    guard let data = try? JSONEncoder().encode(items) else { return }
+    UserDefaults.standard.set(data, forKey: Self.recentOpenedItemsKey)
   }
 
   private func rememberOpenedPath(_ path: String) {
-    var paths = recentOpenedPaths.filter { $0 != path }
-    paths.insert(path, at: 0)
-    if paths.count > Self.maxRecentOpenedPaths {
-      paths = Array(paths.prefix(Self.maxRecentOpenedPaths))
+    var items = recentOpenedItems
+    let now = Date()
+    if let index = items.firstIndex(where: { $0.path == path }) {
+      var item = items.remove(at: index)
+      item.openCount += 1
+      item.lastOpenedAt = now
+      items.insert(item, at: 0)
+    } else {
+      items.insert(RecentOpenedItem(path: path, openCount: 1, lastOpenedAt: now), at: 0)
     }
-    UserDefaults.standard.set(paths, forKey: Self.recentOpenedPathsKey)
+    if items.count > Self.maxRecentOpenedItems {
+      items = Array(items.prefix(Self.maxRecentOpenedItems))
+    }
+    recentOpenedItems = items
+  }
+
+  private var recentItemsBridgePayload: [[String: Any]] {
+    recentOpenedItems.map { $0.bridgePayload() }
   }
 
   var filteredResults: [SearchResultItem] {
@@ -432,7 +474,7 @@ final class AppState: ObservableObject {
     do {
       var args: [String: Any] = [
         "query": query,
-        "recent_paths": recentOpenedPaths,
+        "recent_items": recentItemsBridgePayload,
       ]
       if searchScopeSelectedFolder, let folder = selectedFolder {
         args["folder"] = folder

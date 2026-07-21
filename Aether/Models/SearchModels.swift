@@ -78,6 +78,28 @@ struct SavedSearch: Identifiable, Codable, Hashable {
     var id: String { name }
 }
 
+struct RecentOpenedItem: Identifiable, Codable, Hashable {
+    let path: String
+    var openCount: Int
+    var lastOpenedAt: Date
+
+    var id: String { path }
+
+    enum CodingKeys: String, CodingKey {
+        case path
+        case openCount = "open_count"
+        case lastOpenedAt = "last_opened_at"
+    }
+
+    func bridgePayload() -> [String: Any] {
+        [
+            "path": path,
+            "open_count": openCount,
+            "last_opened_at": lastOpenedAt.timeIntervalSince1970,
+        ]
+    }
+}
+
 struct DuplicateFile: Identifiable, Codable, Hashable {
     let path: String
     let fileName: String

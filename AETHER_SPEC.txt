@@ -182,7 +182,9 @@ SHIPPED IN PHASES 1-3
   - Index health in Settings (counts, last_indexed, Refresh)
   - User-configurable exclude paths (Settings + backend folders.json)
   - Clearer Add -> Index -> Search empty states
-  - Ranking: path-segment + recently-opened boosts; light synonym expansion
+  - Ranking: path-token matching, exact/complete filename dominance, bounded
+    decayed recent-open boosts (path + open_count + last_opened_at), and
+    symmetric conservative synonym expansion for lexical/path/snippet signals
   - This Folder / All Folders scope chip (⌥⌘F)
   - Failed-doc count in index stats (“N files skipped”)
 
@@ -195,8 +197,7 @@ Near term (polish & ship)
   - Signed / notarized distribution pipeline (operator runs notarytool)
 
 Search & index quality
-  - Further ranking tuning - open-recently signals beyond last-20 list
-  - Richer synonym / query expansion
+  - Optional learned ranking / user feedback signals (still local-first)
 
 UX
   - Batch actions - multi-select results, bulk reveal/delete/tag

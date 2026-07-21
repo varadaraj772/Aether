@@ -134,12 +134,25 @@ class AsyncIndexTests(unittest.TestCase):
 
 
 class SearchRankingTests(unittest.TestCase):
-    def _search(self, rows, query="report", folder=None, recent_paths=None, lock_state=None):
+    def _search(
+        self,
+        rows,
+        query="report",
+        folder=None,
+        recent_paths=None,
+        recent_items=None,
+        lock_state=None,
+    ):
         fake_db = _FakeDB(rows, lock_state)
         with mock.patch.object(search, "db", fake_db), mock.patch.object(
             search, "get_model", return_value=_FakeModel()
         ):
-            return search.search(query, folder=folder, recent_paths=recent_paths)
+            return search.search(
+                query,
+                folder=folder,
+                recent_paths=recent_paths,
+                recent_items=recent_items,
+            )
 
     def test_exact_stem_beats_better_semantic_result(self):
         rows = [
@@ -297,20 +310,194 @@ class SearchRankingTests(unittest.TestCase):
         self.assertGreater(ranked[0]["keyword_score"], ranked[1]["keyword_score"])
 
     def test_expand_tokens_is_small_and_stable(self):
-        self.assertEqual(
-            search._expand_tokens(["invoice", "photo"]),
-            ["invoice", "receipt", "bill", "photo", "image", "picture"],
-        )
+        expanded = search._expand_tokens(["invoice", "photo"])
+        self.assertEqual(expanded[0], "invoice")
+        self.assertIn("receipt", expanded)
+        self.assertIn("bill", expanded)
+        self.assertIn("expense", expanded)
+        self.assertIn("photo", expanded)
+        self.assertIn("image", expanded)
+        self.assertIn("picture", expanded)
+        self.assertIn("screenshot", expanded)
+
+    def test_synonym_groups_are_symmetric(self):
+        for token, syns in search._SYNONYMS.items():
+            for syn in syns:
+                self.assertIn(token, search._SYNONYMS.get(syn, ()), msg=f"{token} <-> {syn}")
+
+    def test_path_segment_ignores_short_substring_false_positives(self):
+        rows = [
+            {
+                "path": "/archive/misc/note.txt",
+                "file_name": "note.txt",
+                "chunk_id": 0,
+                "content": "note",
+                "_distance": 1.0,
+            },
+            {
+                "path": "/docs/note.txt",
+                "file_name": "note.txt",
+                "chunk_id": 0,
+                "content": "note",
+                "_distance": 1.0,
+            },
+        ]
+        # "ar" must not boost /archive via substring/prefix containment.
+        ranked = self._search(rows, query="ar note")
+        self.assertEqual(ranked[0]["path_score"], ranked[1]["path_score"])
+
+    def test_complete_multi_token_filename_outranks_partial(self):
+        rows = [
+            {
+                "path": "/d/budget.txt",
+                "file_name": "budget.txt",
+                "chunk_id": 0,
+                "content": "",
+                "_distance": 1.0,
+            },
+            {
+                "path": "/d/budget-report-final.txt",
+                "file_name": "budget-report-final.txt",
+                "chunk_id": 0,
+                "content": "",
+                "_distance": 1.0,
+            },
+        ]
+        ranked = self._search(rows, query="budget report")
+        self.assertEqual(ranked[0]["path"], "/d/budget-report-final.txt")
+
+    def test_recent_items_time_decay_and_open_count(self):
+        now = time.time()
+        rows = [
+            {
+                "path": "/docs/a.txt",
+                "file_name": "a.txt",
+                "chunk_id": 0,
+                "content": "memo",
+                "_distance": 1.0,
+            },
+            {
+                "path": "/docs/b.txt",
+                "file_name": "b.txt",
+                "chunk_id": 0,
+                "content": "memo",
+                "_distance": 1.0,
+            },
+            {
+                "path": "/docs/c.txt",
+                "file_name": "c.txt",
+                "chunk_id": 0,
+                "content": "memo",
+                "_distance": 1.0,
+            },
+        ]
+        recent_items = [
+            {
+                "path": "/docs/a.txt",
+                "open_count": 1,
+                "last_opened_at": now - (30 * 86400),
+            },
+            {
+                "path": "/docs/b.txt",
+                "open_count": 1,
+                "last_opened_at": now,
+            },
+            {
+                "path": "/docs/c.txt",
+                "open_count": 8,
+                "last_opened_at": now,
+            },
+        ]
+        ranked = self._search(rows, query="memo", recent_items=recent_items)
+        by_path = {item["path"]: item for item in ranked}
+        self.assertGreater(by_path["/docs/b.txt"]["recent_score"], by_path["/docs/a.txt"]["recent_score"])
+        self.assertGreater(by_path["/docs/c.txt"]["recent_score"], by_path["/docs/b.txt"]["recent_score"])
+        self.assertEqual(ranked[0]["path"], "/docs/c.txt")
+
+    def test_recent_boost_does_not_outrank_exact_filename(self):
+        now = time.time()
+        rows = [
+            {
+                "path": "/docs/report.pdf",
+                "file_name": "report.pdf",
+                "chunk_id": 0,
+                "content": "unrelated",
+                "_distance": 10.0,
+            },
+            {
+                "path": "/docs/other.txt",
+                "file_name": "other.txt",
+                "chunk_id": 0,
+                "content": "report",
+                "_distance": 0.0,
+            },
+        ]
+        recent_items = [
+            {
+                "path": "/docs/other.txt",
+                "open_count": 50,
+                "last_opened_at": now,
+            }
+        ]
+        ranked = self._search(rows, query="report", recent_items=recent_items)
+        self.assertEqual(ranked[0]["path"], "/docs/report.pdf")
+        self.assertLessEqual(ranked[1]["recent_score"], search._RECENT_MAX_BOOST)
+
+    def test_legacy_recent_paths_still_boost(self):
+        rows = [
+            {
+                "path": "/docs/a.txt",
+                "file_name": "a.txt",
+                "chunk_id": 0,
+                "content": "memo",
+                "_distance": 1.0,
+            },
+            {
+                "path": "/docs/b.txt",
+                "file_name": "b.txt",
+                "chunk_id": 0,
+                "content": "memo",
+                "_distance": 1.0,
+            },
+        ]
+        ranked = self._search(rows, query="memo", recent_paths=["/docs/b.txt"])
+        self.assertEqual(ranked[0]["path"], "/docs/b.txt")
+
+    def test_synonym_aware_snippet_anchors(self):
+        content = "prefix " + ("x " * 40) + "store receipt total " + ("y " * 40)
+        snippet = search._match_snippet(content, "invoice")
+        self.assertIn("receipt", snippet.lower())
+
+    def test_deterministic_tie_break_by_path(self):
+        rows = [
+            {
+                "path": "/docs/b.txt",
+                "file_name": "b.txt",
+                "chunk_id": 0,
+                "content": "memo",
+                "_distance": 1.0,
+            },
+            {
+                "path": "/docs/a.txt",
+                "file_name": "a.txt",
+                "chunk_id": 0,
+                "content": "memo",
+                "_distance": 1.0,
+            },
+        ]
+        ranked = self._search(rows, query="memo")
+        self.assertEqual([item["path"] for item in ranked], ["/docs/a.txt", "/docs/b.txt"])
 
 
 class BridgeArgPassthroughTests(unittest.TestCase):
     def test_search_forwards_recent_paths(self):
         captured = {}
 
-        def fake_search(query, folder=None, recent_paths=None):
+        def fake_search(query, folder=None, recent_paths=None, recent_items=None):
             captured["query"] = query
             captured["folder"] = folder
             captured["recent_paths"] = recent_paths
+            captured["recent_items"] = recent_items
             return []
 
         with mock.patch("search.search", fake_search):
@@ -326,6 +513,29 @@ class BridgeArgPassthroughTests(unittest.TestCase):
         self.assertEqual(captured["query"], "hello")
         self.assertEqual(captured["folder"], "/docs")
         self.assertEqual(captured["recent_paths"], ["/docs/a.txt"])
+        self.assertEqual(captured["recent_items"], [])
+
+    def test_search_forwards_recent_items(self):
+        captured = {}
+
+        def fake_search(query, folder=None, recent_paths=None, recent_items=None):
+            captured["recent_paths"] = recent_paths
+            captured["recent_items"] = recent_items
+            return []
+
+        items = [{"path": "/docs/a.txt", "open_count": 3, "last_opened_at": 100.0}]
+        with mock.patch("search.search", fake_search):
+            result = bridge.handle({
+                "cmd": "search",
+                "args": {
+                    "query": "hello",
+                    "recent_items": items,
+                    "recent_paths": "not-a-list",
+                },
+            })
+        self.assertEqual(result, [])
+        self.assertEqual(captured["recent_items"], items)
+        self.assertEqual(captured["recent_paths"], [])
 
     def test_duplicates_forwards_max_files(self):
         captured = {}
