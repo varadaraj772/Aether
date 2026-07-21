@@ -75,6 +75,11 @@ struct PreviewPanelView: View {
             help: "Copy file path to clipboard"
           ) { appState.copySelectedPath() }
           .accessibilityLabel("Copy file path")
+          ToolbarIconButton(
+            systemImage: "text.quote",
+            help: "Copy match snippet to clipboard"
+          ) { appState.copySelectedSnippet() }
+          .accessibilityLabel("Copy match snippet")
         }
       }
     }
@@ -167,6 +172,17 @@ struct PreviewPanelView: View {
         highlightColor: appState.colors.accent
       )
       .frame(maxWidth: .infinity, alignment: .leading)
+    } else if !isImage {
+      EmptyStateView(
+        systemImage: "doc.plaintext",
+        title: "No text preview",
+        message: "This file has no extractable text to show here. Open it or use Quick Look instead.",
+        actionTitle: "Open",
+        action: { appState.openSelectedResult() },
+        secondaryActionTitle: "Quick Look",
+        secondaryAction: { appState.toggleQuickLookForSelectedResult() }
+      )
+      .padding(.vertical, 8)
     }
   }
 

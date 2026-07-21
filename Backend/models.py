@@ -130,6 +130,20 @@ def warmup_model():
 def _warmup_error_message(exc: BaseException) -> str:
     text = str(exc) or exc.__class__.__name__
     lower = text.lower()
+    if isinstance(exc, ModuleNotFoundError) or any(
+        token in lower
+        for token in (
+            "no module named",
+            "sentence_transformers",
+            "sentence-transformers",
+            "modulenotfounderror",
+        )
+    ):
+        return (
+            f"{text}\n\n"
+            "Python dependencies are missing from the backend virtualenv. "
+            "Run ./Scripts/setup-backend.sh, then Retry to restart the backend."
+        )
     if any(
         token in lower
         for token in (

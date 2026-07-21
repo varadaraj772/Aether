@@ -56,6 +56,7 @@ struct AetherSearchField: View {
         }
         .buttonStyle(.plain)
         .help("Clear search")
+        .accessibilityLabel("Clear search")
       }
     }
     .padding(.horizontal, horizontalPadding)
@@ -116,6 +117,7 @@ struct EmptyStateView: View {
         .font(.system(size: 28, weight: .light))
         .foregroundStyle(.tertiary)
         .symbolRenderingMode(.hierarchical)
+        .accessibilityHidden(true)
 
       Text(title)
         .font(.system(size: 13, weight: .medium))
@@ -149,12 +151,16 @@ struct EmptyStateView: View {
     .frame(maxWidth: .infinity)
     .padding(.vertical, 36)
     .padding(.horizontal, 16)
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel(title)
+    .accessibilityValue(message ?? "")
   }
 }
 
 struct ToolbarIconButton: View {
   let systemImage: String
   let help: String
+  var accessibilityLabelText: String? = nil
   var isActive: Bool = false
   var activeTint: Color? = nil
   let action: () -> Void
@@ -169,6 +175,7 @@ struct ToolbarIconButton: View {
     .buttonStyle(.plain)
     .foregroundStyle(isActive ? (activeTint ?? .accentColor) : .secondary)
     .help(help)
+    .accessibilityLabel(accessibilityLabelText ?? help)
   }
 }
 

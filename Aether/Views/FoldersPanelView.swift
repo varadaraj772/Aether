@@ -229,6 +229,9 @@ struct FoldersPanelView: View {
               : Color.primary.opacity(0.05),
             in: Capsule()
           )
+          .accessibilityLabel(collection.label)
+          .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+          .accessibilityHint(selected ? "Selected collection" : "Show \(collection.label) collection")
         }
       }
     }

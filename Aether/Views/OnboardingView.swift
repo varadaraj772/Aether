@@ -104,6 +104,9 @@ struct SettingsView: View {
         if appState.folderStore.folders.isEmpty {
           Text("Add a folder in the workspace to see index health.")
             .foregroundStyle(.secondary)
+          Button("Add folder") {
+            appState.addFolder()
+          }
         } else {
           ForEach(appState.folderStore.folders, id: \.self) { folder in
             folderHealthRow(folder)
@@ -120,6 +123,12 @@ struct SettingsView: View {
           }
         }
         .disabled(appState.isRefreshingFolderHealth || !appState.backendReady)
+
+        if !appState.backendReady {
+          Text("Refresh needs the backend. Use Retry backend below if it is offline.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
       } header: {
         Text("Index health")
       } footer: {
@@ -202,7 +211,7 @@ struct SettingsView: View {
   private func folderHealthRow(_ folder: String) -> some View {
     let stats = appState.folderStats[folder]
     let indexed = stats?.indexed == true
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: 6) {
       HStack(alignment: .firstTextBaseline) {
         Text(appState.folderStore.displayName(for: folder))
           .font(.headline)
@@ -225,6 +234,16 @@ struct SettingsView: View {
       }
       .font(.caption2)
       .foregroundStyle(.tertiary)
+
+      HStack(spacing: 8) {
+        Button(indexed ? "Re-index" : "Index") {
+          appState.indexFolder(folder, force: indexed)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(appState.isIndexing || !appState.backendReady)
+        .help(indexed ? "Force re-index this folder" : "Index this folder")
+      }
     }
     .padding(.vertical, 2)
   }

@@ -250,6 +250,30 @@ class SearchRankingTests(unittest.TestCase):
         self.assertEqual(ranked[0]["path"], "/docs/b.txt")
         self.assertGreater(ranked[0]["recent_score"], 0)
 
+    def test_mtime_recency_score_boosts_newer_file(self):
+        now = time.time()
+        rows = [
+            {
+                "path": "/docs/old.txt",
+                "file_name": "old.txt",
+                "chunk_id": 0,
+                "content": "memo",
+                "_distance": 1.0,
+                "mtime": now - (20 * 24 * 60 * 60),
+            },
+            {
+                "path": "/docs/new.txt",
+                "file_name": "new.txt",
+                "chunk_id": 0,
+                "content": "memo",
+                "_distance": 1.0,
+                "mtime": now,
+            },
+        ]
+        ranked = self._search(rows, query="memo")
+        self.assertEqual(ranked[0]["path"], "/docs/new.txt")
+        self.assertGreater(ranked[0].get("recency_score", 0), ranked[1].get("recency_score", 0))
+
     def test_synonym_expansion_helps_keyword_scoring_only(self):
         rows = [
             {
@@ -391,6 +415,27 @@ class ModelProgressTests(unittest.TestCase):
         self.assertIn("cached", result)
         self.assertEqual(stdout.getvalue().strip(), "")
         self.assertIn("MODEL_PROGRESS: ready", stderr.getvalue())
+
+    def test_warmup_error_message_missing_dependency(self):
+        import models
+
+        msg = models._warmup_error_message(ModuleNotFoundError("No module named 'sentence_transformers'"))
+        self.assertIn("setup-backend.sh", msg)
+        self.assertIn("dependencies are missing", msg.lower())
+
+    def test_warmup_error_message_network(self):
+        import models
+
+        msg = models._warmup_error_message(RuntimeError("Connection timed out talking to huggingface"))
+        self.assertIn("Connect to the internet", msg)
+        self.assertIn("Hugging Face", msg)
+
+    def test_warmup_error_message_generic(self):
+        import models
+
+        msg = models._warmup_error_message(RuntimeError("unexpected tensor layout"))
+        self.assertIn("Search model warmup failed", msg)
+        self.assertIn("setup-backend.sh", msg)
 
     def test_get_model_uses_local_snapshot_offline_when_cached(self):
         import models

@@ -17,7 +17,7 @@ Spotlight is great when you know the filename. Cloud AI search often wants your 
 - Index **locally** with LanceDB + a local embedding model
 - Keep a Spotlight-style **launcher** and a full **workspace** with preview & Quick Look
 
-Product overview: [`AETHER_SPEC.txt`](AETHER_SPEC.txt) · Marketing page: [`landing/index.html`](landing/index.html)
+Product overview: [`AETHER_SPEC.txt`](AETHER_SPEC.txt) · Site: [aether.varada.me](https://aether.varada.me) · Source: [`landing/`](landing/)
 
 ## Features
 
@@ -92,7 +92,7 @@ export AETHER_PYTHON=/path/to/python3
 Aether/                 SwiftUI app
 Backend/                Python JSON-RPC bridge + search/index
 Scripts/                setup, package, QA checklist, icons
-landing/                Static marketing page (Tailwind CDN)
+landing/                Marketing site (hosted at https://aether.varada.me)
 AETHER_SPEC.txt         Product / architecture overview
 ```
 

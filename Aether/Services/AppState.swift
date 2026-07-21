@@ -15,6 +15,8 @@ final class AppState: ObservableObject {
   @Published var sortMode: SortMode = .relevance
   @Published var statusMessage = "Ready"
   @Published var isIndexing = false
+  @Published var isSearching = false
+  @Published var lastSearchError: String?
   @Published var liveSyncEnabled = false
   @Published var folderStats: [String: FolderStats] = [:]
   @Published var isDark = true
@@ -384,7 +386,21 @@ final class AppState: ObservableObject {
     previewContent = ""
     relatedResults = []
     launcherSelectionIndex = 0
+    isSearching = false
+    lastSearchError = nil
     statusMessage = "Ready"
+  }
+
+  private func beginSearchUI() {
+    activeSearchToken += 1
+    results = []
+    selectedResult = nil
+    previewContent = ""
+    relatedResults = []
+    launcherSelectionIndex = 0
+    isSearching = true
+    lastSearchError = nil
+    statusMessage = "Searching..."
   }
 
   private func handleDebouncedSearchQuery(_ query: String) {
@@ -394,13 +410,7 @@ final class AppState: ObservableObject {
       return
     }
 
-    activeSearchToken += 1
-    results = []
-    selectedResult = nil
-    previewContent = ""
-    relatedResults = []
-    launcherSelectionIndex = 0
-    statusMessage = "Searching..."
+    beginSearchUI()
     searchTask = Task {
       await performSearch(query: query)
     }
@@ -408,12 +418,16 @@ final class AppState: ObservableObject {
 
   func performSearch(query: String) async {
     guard searchReady else {
+      isSearching = false
+      lastSearchError = nil
       statusMessage = "Search model still loading…"
       return
     }
 
     searchGeneration += 1
     let generation = searchGeneration
+    isSearching = true
+    lastSearchError = nil
     statusMessage = "Searching..."
     do {
       var args: [String: Any] = [
@@ -430,6 +444,8 @@ final class AppState: ObservableObject {
       previewContent = ""
       relatedResults = []
       launcherSelectionIndex = 0
+      isSearching = false
+      lastSearchError = nil
       let scopeNote: String = {
         guard searchScopeSelectedFolder, let folder = selectedFolder else { return "" }
         return " in \(folderStore.displayName(for: folder))"
@@ -441,9 +457,37 @@ final class AppState: ObservableObject {
       }
     } catch {
       guard !Task.isCancelled, generation == searchGeneration else { return }
-      backendError = error.localizedDescription
+      isSearching = false
+      lastSearchError = error.localizedDescription
       statusMessage = "Search failed"
     }
+  }
+
+  func retryLastSearch() async {
+    searchTask?.cancel()
+    lastSearchError = nil
+    if !backendReady || !searchReady {
+      await recoverBackend()
+    }
+    let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.count >= 2 else { return }
+    guard searchReady else { return }
+    beginSearchUI()
+    await performSearch(query: trimmed)
+  }
+
+  func clearActiveFilter() {
+    activeFilter = .all
+  }
+
+  func clearSearchScope() {
+    searchScopeSelectedFolder = false
+  }
+
+  /// Index a specific folder from Settings without requiring prior sidebar selection.
+  func indexFolder(_ folder: String, force: Bool = false) {
+    selectedFolder = folder
+    indexFolders([folder], force: force, showStatus: true)
   }
 
   func toggleSearchScopeSelectedFolder() {
@@ -489,13 +533,7 @@ final class AppState: ObservableObject {
       clearSearchResults()
       return
     }
-    activeSearchToken += 1
-    results = []
-    selectedResult = nil
-    previewContent = ""
-    relatedResults = []
-    launcherSelectionIndex = 0
-    statusMessage = "Searching..."
+    beginSearchUI()
     searchTask = Task {
       await performSearch(query: trimmed)
     }
@@ -539,7 +577,15 @@ final class AppState: ObservableObject {
   }
 
   func loadDuplicates() async {
-    guard searchReady else { return }
+    guard searchReady else {
+      statusMessage = "Search model still loading… try Find Duplicates again when Ready"
+      backendError = """
+      Duplicate scan needs the search model to be ready.
+
+      Wait for status Ready, or use Retry if the backend failed to start.
+      """
+      return
+    }
     isLoadingDuplicates = true
     duplicateGroups = []
     showDuplicateSheet = true

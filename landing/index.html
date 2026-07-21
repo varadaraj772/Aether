@@ -8,10 +8,12 @@
   <title>Aether - Local Semantic File Search for macOS | Private Spotlight Alternative</title>
   <meta name="description" content="Aether is local semantic file search for macOS. Find PDFs, notes, and code by meaning, not just filename. On-device AI embeddings, hybrid keyword search, OCR. No cloud upload. Open source." />
   <meta name="keywords" content="semantic file search, macOS file search, Spotlight alternative, local AI search, private document search, offline file search, search Mac by meaning, on-device embeddings, PDF search Mac, local LanceDB search" />
-  <meta name="author" content="Aether" />
+  <meta name="author" content="Varada" />
+  <link rel="author" href="https://varada.me" />
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
   <meta name="googlebot" content="index, follow" />
   <link rel="canonical" href="https://aether.varada.me/" />
+  <link rel="alternate" type="text/plain" href="https://github.com/varadaraj772/Aether" title="Aether source on GitHub" />
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
@@ -36,6 +38,7 @@
   <link rel="icon" href="./favicon-16.png" type="image/png" sizes="16x16" />
   <link rel="shortcut icon" href="./favicon.png" type="image/png" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" sizes="180x180" />
+  <link rel="manifest" href="./site.webmanifest" />
   <meta property="og:image" content="https://aether.varada.me/og-image.png" />
   <meta property="og:image:alt" content="Aether app icon" />
   <meta name="twitter:image" content="https://aether.varada.me/og-image.png" />
@@ -76,6 +79,27 @@
     @media (min-width: 640px) {
       .compare-cards { display: none; }
     }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fade {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .anim-fade { animation: fade 0.55s ease-out both; }
+    .anim-rise { animation: rise 0.7s ease-out both; }
+    .anim-rise-delay { animation: rise 0.75s ease-out 0.12s both; }
+    .anim-rise-delay-2 { animation: rise 0.8s ease-out 0.22s both; }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .anim-fade,
+      .anim-rise,
+      .anim-rise-delay,
+      .anim-rise-delay-2 {
+        animation: none;
+      }
+    }
   </style>
 
   <!-- Structured data: SoftwareApplication -->
@@ -106,7 +130,13 @@
       "Related files and duplicate detection",
       "No account, no telemetry, no cloud corpus sync"
     ],
-    "keywords": "semantic search, macOS, Spotlight alternative, local AI, private file search, offline document search"
+    "keywords": "semantic search, macOS, Spotlight alternative, local AI, private file search, offline document search",
+    "author": {
+      "@type": "Person",
+      "name": "Varada",
+      "url": "https://varada.me",
+      "email": "mailto:varadaraj277@gmail.com"
+    }
   }
   </script>
 
@@ -119,10 +149,26 @@
     "url": "https://aether.varada.me/",
     "description": "Official landing page for Aether, local semantic file search for macOS.",
     "publisher": {
-      "@type": "Organization",
-      "name": "Aether",
-      "url": "https://github.com/varadaraj772/Aether"
+      "@type": "Person",
+      "name": "Varada",
+      "url": "https://varada.me",
+      "email": "mailto:varadaraj277@gmail.com"
     }
+  }
+  </script>
+
+  <!-- Structured data: Person -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    "name": "Varada",
+    "url": "https://varada.me",
+    "email": "mailto:varadaraj277@gmail.com",
+    "sameAs": [
+      "https://varada.me",
+      "https://github.com/varadaraj772"
+    ]
   }
   </script>
 
@@ -266,7 +312,7 @@
         </div>
       </nav>
 
-      <p class="mt-6 max-w-3xl border-l-2 border-accent pl-4 text-sm leading-relaxed text-soft sm:mt-8 sm:text-base lg:max-w-4xl">
+      <p class="anim-fade mt-6 max-w-3xl rounded-md border border-line bg-panel/80 px-4 py-3 text-sm leading-relaxed text-soft sm:mt-8 sm:text-base lg:max-w-4xl">
         Looking for an easy first pull request?
         <a href="https://github.com/varadaraj772/Aether" class="font-semibold text-ink underline decoration-line underline-offset-2 hover:decoration-accent" rel="noopener noreferrer">Replace the logo</a>.
         The current one is… how do I put this… <span class="font-medium text-ink">not good</span>.
@@ -274,7 +320,7 @@
       </p>
 
       <div class="grid items-end gap-10 pb-10 pt-10 sm:gap-12 sm:pb-14 sm:pt-12 lg:grid-cols-12 lg:gap-14 lg:pb-20 lg:pt-16">
-        <div class="lg:col-span-5">
+        <div class="anim-rise lg:col-span-5">
           <p class="font-display text-5xl font-extrabold leading-none tracking-tight sm:text-6xl lg:text-7xl xl:text-8xl">
             Aether
           </p>
@@ -308,7 +354,7 @@
           </ul>
         </div>
 
-        <figure class="overflow-hidden rounded-xl border border-line bg-panel sm:rounded-2xl lg:col-span-7" aria-label="Example of Aether semantic search results">
+        <figure class="anim-rise-delay overflow-hidden rounded-xl border border-line bg-panel sm:rounded-2xl lg:col-span-7" aria-label="Example of Aether semantic search results">
           <div class="flex min-h-14 items-center gap-3 border-b border-line px-4 py-3 sm:h-16 sm:px-6 sm:py-0">
             <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/10 text-sm font-bold text-accent" aria-hidden="true">⌕</span>
             <p class="truncate text-base text-soft sm:text-lg">quarterly revenue notes</p>
@@ -387,7 +433,7 @@
           You choose what to index. Embeddings and ranking stay on-device.
         </p>
 
-        <ol class="mt-10 grid list-none gap-8 sm:mt-16 sm:gap-12 md:grid-cols-3 md:gap-10 lg:gap-16">
+        <ol class="anim-rise-delay-2 mt-10 grid list-none gap-8 sm:mt-16 sm:gap-12 md:grid-cols-3 md:gap-10 lg:gap-16">
           <li class="border-t border-line pt-6 sm:pt-8">
             <p class="text-sm font-bold tracking-[0.14em] text-accent">01</p>
             <h3 class="mt-3 font-display text-lg font-bold tracking-tight sm:mt-4 sm:text-xl">Add folders to index</h3>
@@ -851,12 +897,25 @@
     </div>
   </footer>
   <script>
-    document.querySelectorAll('nav details a').forEach(function (link) {
-      link.addEventListener('click', function () {
-        var menu = link.closest('details');
-        if (menu) menu.open = false;
+    (function () {
+      var menu = document.querySelector('nav details');
+      if (!menu) return;
+
+      menu.querySelectorAll('a').forEach(function (link) {
+        link.addEventListener('click', function () {
+          menu.open = false;
+        });
       });
-    });
+
+      document.addEventListener('click', function (event) {
+        if (!menu.open) return;
+        if (!menu.contains(event.target)) menu.open = false;
+      });
+
+      document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && menu.open) menu.open = false;
+      });
+    })();
   </script>
 </body>
 </html>

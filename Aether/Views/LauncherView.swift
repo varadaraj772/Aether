@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LauncherView: View {
   @EnvironmentObject private var appState: AppState
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @FocusState private var focused: Bool
 
   private let cardWidth: CGFloat = 660
@@ -111,6 +112,7 @@ struct LauncherView: View {
             .foregroundStyle(.tertiary)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Clear search")
       }
 
       Menu {
@@ -133,8 +135,10 @@ struct LauncherView: View {
   private var contentArea: some View {
     let query = appState.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     if query.count >= 2 {
-      if appState.filteredResults.isEmpty && appState.statusMessage.contains("Searching") {
+      if appState.isSearching && appState.filteredResults.isEmpty {
         loadingState
+      } else if appState.lastSearchError != nil && appState.filteredResults.isEmpty {
+        searchErrorState
       } else if appState.filteredResults.isEmpty {
         emptyResults
       } else {
@@ -213,8 +217,12 @@ struct LauncherView: View {
         }
       }
       .onChange(of: appState.launcherSelectionIndex) { _, index in
-        withAnimation(.easeInOut(duration: 0.12)) {
+        if reduceMotion {
           proxy.scrollTo(index, anchor: .center)
+        } else {
+          withAnimation(.easeInOut(duration: 0.12)) {
+            proxy.scrollTo(index, anchor: .center)
+          }
         }
       }
       .onChange(of: appState.results.count) { _, _ in
@@ -273,6 +281,16 @@ struct LauncherView: View {
     }
   }
 
+  private var searchErrorState: some View {
+    EmptyStateView(
+      systemImage: "exclamationmark.triangle",
+      title: "Search failed",
+      message: appState.lastSearchError ?? "Something went wrong while searching.",
+      actionTitle: "Retry",
+      action: { Task { await appState.retryLastSearch() } }
+    )
+  }
+
   @ViewBuilder
   private var emptyResults: some View {
     if appState.folderStore.folders.isEmpty {
@@ -304,6 +322,32 @@ struct LauncherView: View {
         secondaryAction: appState.selectedFolder != nil
           ? { appState.indexAllFolders() }
           : nil
+      )
+    } else if !appState.results.isEmpty && appState.filteredResults.isEmpty {
+      let filterActive = appState.activeFilter != .all
+      let scopeActive = appState.searchScopeSelectedFolder && appState.selectedFolder != nil
+      EmptyStateView(
+        systemImage: "line.3.horizontal.decrease.circle",
+        title: "No matches for this view",
+        message: "Results are hidden by filter or folder scope. Open the workspace to adjust, or clear them here.",
+        actionTitle: filterActive ? "Clear filter" : (scopeActive ? "Search all folders" : "Open workspace"),
+        action: {
+          if filterActive {
+            appState.clearActiveFilter()
+          } else if scopeActive {
+            appState.clearSearchScope()
+          } else {
+            appState.openWorkspace()
+          }
+        },
+        secondaryActionTitle: filterActive && scopeActive ? "Search all folders" : "Open workspace",
+        secondaryAction: {
+          if filterActive && scopeActive {
+            appState.clearSearchScope()
+          } else {
+            appState.openWorkspace()
+          }
+        }
       )
     } else {
       EmptyStateView(

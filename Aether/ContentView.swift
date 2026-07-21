@@ -122,6 +122,14 @@ struct WorkspaceView: View {
       appState.toggleQuickLookForSelectedResult()
       return .handled
     }
+    .onKeyPress(.return) {
+      guard !appState.filteredResults.isEmpty else { return .ignored }
+      Task { @MainActor in
+        searchFocused = false
+        appState.activateLauncherSelection()
+      }
+      return .handled
+    }
     .onAppear { focusWorkspaceSearch() }
     .onChange(of: appState.searchReady) { _, _ in
       focusWorkspaceSearch()
@@ -208,7 +216,8 @@ struct WorkspaceView: View {
       if !appState.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         ToolbarIconButton(
           systemImage: "bookmark",
-          help: "Save search"
+          help: "Save search",
+          accessibilityLabelText: "Save search"
         ) {
           appState.saveCurrentSearch(name: appState.searchQuery)
         }
@@ -223,6 +232,7 @@ struct WorkspaceView: View {
           ? "arrow.triangle.2.circlepath.circle.fill"
           : "arrow.triangle.2.circlepath",
         help: appState.liveSyncEnabled ? "Live sync on" : "Live sync off",
+        accessibilityLabelText: appState.liveSyncEnabled ? "Disable live sync" : "Enable live sync",
         isActive: appState.liveSyncEnabled,
         activeTint: appState.colors.success
       ) {

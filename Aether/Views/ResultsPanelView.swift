@@ -52,6 +52,7 @@ struct ResultRowView: View {
 
 struct ResultsPanelView: View {
   @EnvironmentObject private var appState: AppState
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     GlassPanel {
@@ -131,6 +132,8 @@ struct ResultsPanelView: View {
         LazyVStack(spacing: 4) {
           if shouldShowSearching {
             searchingState
+          } else if shouldShowSearchError {
+            searchErrorState
           } else if shouldShowEmpty {
             emptyResultsState
           } else if shouldShowPrompt {
@@ -168,6 +171,18 @@ struct ResultsPanelView: View {
     }
     .frame(maxWidth: .infinity)
     .padding(.vertical, 36)
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("Searching")
+  }
+
+  private var searchErrorState: some View {
+    EmptyStateView(
+      systemImage: "exclamationmark.triangle",
+      title: "Search failed",
+      message: appState.lastSearchError ?? "Something went wrong while searching.",
+      actionTitle: "Retry",
+      action: { Task { await appState.retryLastSearch() } }
+    )
   }
 
   @ViewBuilder
@@ -190,6 +205,28 @@ struct ResultsPanelView: View {
           ? { appState.indexAllFolders() }
           : nil
       )
+    } else if !appState.results.isEmpty && appState.filteredResults.isEmpty {
+      let filterActive = appState.activeFilter != .all
+      let scopeActive = appState.searchScopeSelectedFolder && appState.selectedFolder != nil
+      EmptyStateView(
+        systemImage: "line.3.horizontal.decrease.circle",
+        title: "No matches for this view",
+        message: {
+          if filterActive && scopeActive {
+            return "Results are hidden by the file-type filter or folder scope."
+          }
+          if filterActive {
+            return "Results are hidden by the file-type filter."
+          }
+          return "Results are hidden by the folder scope."
+        }(),
+        actionTitle: filterActive ? "Clear filter" : (scopeActive ? "Search all folders" : nil),
+        action: filterActive
+          ? { appState.clearActiveFilter() }
+          : (scopeActive ? { appState.clearSearchScope() } : nil),
+        secondaryActionTitle: filterActive && scopeActive ? "Search all folders" : nil,
+        secondaryAction: filterActive && scopeActive ? { appState.clearSearchScope() } : nil
+      )
     } else {
       let scoped = appState.searchScopeSelectedFolder && appState.selectedFolder != nil
       let scopeName = appState.selectedFolder.map { appState.folderStore.displayName(for: $0) }
@@ -201,7 +238,9 @@ struct ResultsPanelView: View {
             return "No matches in \(scopeName). Try different words, or search all folders."
           }
           return "Try different words, or index more folders."
-        }()
+        }(),
+        actionTitle: scoped ? "Search all folders" : nil,
+        action: scoped ? { appState.clearSearchScope() } : nil
       )
     }
   }
@@ -252,11 +291,21 @@ struct ResultsPanelView: View {
   }
 
   private var shouldShowSearching: Bool {
-    trimmedQuery.count >= 2 && appState.filteredResults.isEmpty && appState.statusMessage.contains("Searching")
+    trimmedQuery.count >= 2 && appState.filteredResults.isEmpty && appState.isSearching
+  }
+
+  private var shouldShowSearchError: Bool {
+    trimmedQuery.count >= 2
+      && appState.filteredResults.isEmpty
+      && !appState.isSearching
+      && appState.lastSearchError != nil
   }
 
   private var shouldShowEmpty: Bool {
-    trimmedQuery.count >= 2 && appState.filteredResults.isEmpty && !appState.statusMessage.contains("Searching")
+    trimmedQuery.count >= 2
+      && appState.filteredResults.isEmpty
+      && !appState.isSearching
+      && appState.lastSearchError == nil
   }
 
   private func resultButton(_ item: SearchResultItem, index: Int) -> some View {
@@ -284,8 +333,12 @@ struct ResultsPanelView: View {
 
   private func scrollTo(_ index: Int, proxy: ScrollViewProxy, anchor: UnitPoint) {
     guard appState.filteredResults.indices.contains(index) else { return }
-    withAnimation(.easeInOut(duration: 0.12)) {
+    if reduceMotion {
       proxy.scrollTo(index, anchor: anchor)
+    } else {
+      withAnimation(.easeInOut(duration: 0.12)) {
+        proxy.scrollTo(index, anchor: anchor)
+      }
     }
   }
 }

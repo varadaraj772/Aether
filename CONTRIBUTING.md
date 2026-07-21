@@ -12,7 +12,7 @@ Thanks for helping improve Aether. This project is local-first semantic file sea
 ```
 
 3. Open `Aether.xcodeproj` in Xcode and run the **Aether** scheme.
-4. Optional: open `landing/index.html` in a browser while iterating on the marketing page.
+4. Optional: preview the marketing site with `open landing/index.html`, or visit [aether.varada.me](https://aether.varada.me).
 
 ### Backend tests
 
@@ -35,6 +35,7 @@ See [`Scripts/QA_SMOKE_CHECKLIST.txt`](Scripts/QA_SMOKE_CHECKLIST.txt).
 
 ## Suggested focus areas
 
+- A better logo / app icon (the current one is fair game)
 - Search ranking and recall quality
 - Indexing performance and reliability
 - Accessibility and keyboard UX
