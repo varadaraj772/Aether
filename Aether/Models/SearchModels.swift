@@ -30,7 +30,7 @@ enum FileTypeFilter: String, CaseIterable, Identifiable {
         case .data:
             return ["csv", "log", "json", "tsv", "parquet"].contains(ext)
         case .images:
-            return ["png", "jpg", "jpeg"].contains(ext)
+            return ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"].contains(ext)
         case .all:
             return true
         }

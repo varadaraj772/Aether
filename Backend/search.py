@@ -4,7 +4,7 @@ import re
 import time
 from datetime import datetime
 
-from models import get_model
+from models import QUERY_PROMPT, get_model
 from lance_store import db, db_lock
 
 # Conservative synonym groups for lexical/path/snippet scoring only.
@@ -274,7 +274,11 @@ def _lexical_scores(item, query):
 def search(query, folder=None, recent_paths=None, recent_items=None):
     model = get_model()
     # Embed the raw query so synonym expansion does not dilute semantics.
-    vector = model.encode(query, show_progress_bar=False).tolist()
+    vector = model.encode(
+        query,
+        prompt_name=QUERY_PROMPT,
+        show_progress_bar=False,
+    ).tolist()
     query_tokens = _tokens(query)
     recent_records = _parse_recent_items(recent_items=recent_items, recent_paths=recent_paths)
     now = time.time()
@@ -285,7 +289,18 @@ def search(query, folder=None, recent_paths=None, recent_items=None):
         if "documents" not in db.table_names():
             return []
         table = db.open_table("documents")
-        results = table.search(vector).limit(100).to_list()
+        try:
+            results = table.search(vector).limit(100).to_list()
+        except Exception:
+            # An index created by an older Aether release may still contain
+            # 384-dim MiniLM vectors. Keep filename/content search usable until
+            # the user reindexes, instead of surfacing a backend error.
+            try:
+                results = table.to_arrow().to_pylist()
+                for item in results:
+                    item["_distance"] = 0.0
+            except Exception:
+                return []
 
     for item in results:
         distance = max(float(item.get("_distance", 0) or 0), 0.0)

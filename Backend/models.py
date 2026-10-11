@@ -5,8 +5,15 @@ from pathlib import Path
 
 _model = None
 _model_lock = threading.Lock()
-MODEL_NAME = "all-MiniLM-L6-v2"
-MODEL_REPO = f"sentence-transformers/{MODEL_NAME}"
+# EmbeddingGemma 2 gives Aether a stronger semantic space and a path to
+# text-to-image search while remaining local.  Text-only loading keeps the
+# normal document-search launch lightweight; the multimodal encoders can be
+# enabled later for image/audio/video search.
+MODEL_NAME = "google/embeddinggemma-2"
+MODEL_REPO = MODEL_NAME
+MODEL_DIMENSION = 768
+QUERY_PROMPT = "Retrieval-query"
+DOCUMENT_PROMPT = "Retrieval-document"
 
 
 def _emit_model_progress(stage: str) -> None:
@@ -68,7 +75,7 @@ def _resolve_local_snapshot() -> Path | None:
 def _snapshot_looks_complete(path: Path) -> bool:
     if not path.is_dir():
         return False
-    # MiniLM snapshots typically include config + weights/modules.
+    # Gemma snapshots include config + weights/modules.
     has_config = (path / "config.json").is_file() or (path / "config_sentence_transformers.json").is_file()
     has_weights = any(path.glob("*.bin")) or any(path.glob("*.safetensors")) or (path / "pytorch_model.bin").is_file()
     return has_config and has_weights
@@ -109,6 +116,8 @@ def get_model():
             # Lazy import keeps bridge startup fast so ping responds immediately.
             from sentence_transformers import SentenceTransformer
 
+            # Load every encoder: Aether uses the shared space for text,
+            # images, audio, and video. This is intentionally the full model.
             _model = SentenceTransformer(model_id, local_files_only=local_files_only)
 
     return _model
@@ -118,7 +127,7 @@ def warmup_model():
     """Load the embedding model and run a dummy encode to warm inference."""
     try:
         model = get_model()
-        model.encode("warmup", show_progress_bar=False)
+        model.encode("warmup", prompt_name=QUERY_PROMPT, show_progress_bar=False)
         _emit_model_progress("ready")
         print("Model ready.", file=sys.stderr, flush=True)
         return {"ready": True, "cached": _model_cached()}
@@ -141,7 +150,8 @@ def _warmup_error_message(exc: BaseException) -> str:
     ):
         return (
             f"{text}\n\n"
-            "Python dependencies are missing from the backend virtualenv. "
+            "Python dependencies are missing from the backend virtualenv "
+            "(EmbeddingGemma 2 also needs torchvision for its multimodal processor). "
             "Run ./Scripts/setup-backend.sh, then Retry to restart the backend."
         )
     if any(

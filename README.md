@@ -21,7 +21,7 @@ Product overview: [`AETHER_SPEC.txt`](AETHER_SPEC.txt) · Site: [aether.varada.m
 
 ## Features
 
-- Semantic + keyword hybrid search (local `all-MiniLM-L6-v2`)
+- Semantic + keyword hybrid search across text, code, documents, images, audio, and video (local `EmbeddingGemma 2`)
 - Launcher (`⌘⇧Space`) and three-pane workspace
 - Folder browse, smart collections, folder-scoped search
 - Indexing with progress, cancel, background jobs, and index health in Settings
@@ -132,6 +132,10 @@ Check Console for `[Aether backend]` logs. The app attempts auto-recovery; re-in
 ## Privacy
 
 Aether indexes and searches on your Mac. There is no cloud sync of your corpus and no analytics SDK. The first model download uses Hugging Face Hub (public model weights only).
+
+### Search model migration
+
+New installs use `google/embeddinggemma-2` with retrieval-specific query/document prompts. Existing indexes made with the older MiniLM model are detected automatically; the next index operation rebuilds the incompatible vector table. Until then, filename/content matching remains available. Images, audio, and video are embedded natively into the same 768-dimensional space, enabling text-to-media, media-to-media, and cross-modal related-file search.
 
 ## License
 

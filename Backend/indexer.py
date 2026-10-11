@@ -8,7 +8,7 @@ from pypdf import PdfReader
 from docx import Document
 from pptx import Presentation
 
-from models import get_model
+from models import DOCUMENT_PROMPT, MODEL_DIMENSION, get_model
 from lance_store import db, db_lock
 
 AETHER_DIR = os.path.join(os.path.expanduser("~"), ".aether")
@@ -64,6 +64,24 @@ SUPPORTED_EXTENSIONS = {
     ".png",
     ".jpg",
     ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".tif",
+    ".tiff",
+    ".mp3",
+    ".wav",
+    ".flac",
+    ".m4a",
+    ".aac",
+    ".ogg",
+    ".opus",
+    ".mp4",
+    ".mov",
+    ".m4v",
+    ".avi",
+    ".mkv",
+    ".webm",
     *TEXT_EXTENSIONS,
 }
 
@@ -298,7 +316,7 @@ def extract_text(path):
         return extract_xlsx(path)
     elif ext == ".pptx":
         return extract_pptx(path)
-    elif ext in [".png", ".jpg", ".jpeg"]:
+    elif ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"]:
         return extract_image(path)
     elif ext in TEXT_EXTENSIONS:
         return extract_text_file(path)
@@ -478,22 +496,55 @@ def _index_file(path, model=None):
 
     print(f"Processing: {path}")
     text = extract_text(path)
-    if not text.strip():
+    image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
+    audio_exts = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus"}
+    video_exts = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
+    modality = None
+    if ext in image_exts:
+        modality = "image"
+    elif ext in audio_exts:
+        modality = "audio"
+    elif ext in video_exts:
+        modality = "video"
+
+    # Media can be semantically indexed even when it has no OCR/transcript.
+    if not text.strip() and modality is None:
         delete_file_from_index(path)
         return 0
 
     if model is None:
         model = get_model()
 
-    chunks = chunk_text(text)
+    chunks = chunk_text(text) if text.strip() else [""]
     rows = []
     for chunk_id, chunk in enumerate(chunks):
-        vector = model.encode(chunk).tolist()
+        if modality:
+            media_kwargs = {"show_progress_bar": False}
+            if modality == "video":
+                media_kwargs["processing_kwargs"] = {
+                    "video": {
+                        "max_frames": 32,
+                        "fps": 1.0,
+                        "overflow_strategy": "uniform",
+                        "add_timestamps": True,
+                    }
+                }
+            vector = model.encode(
+                {modality: path},
+                **media_kwargs,
+            ).tolist()
+        else:
+            vector = model.encode(
+                chunk,
+                prompt_name=DOCUMENT_PROMPT,
+                show_progress_bar=False,
+            ).tolist()
         rows.append({
             "path": path,
             "file_name": os.path.basename(path),
             "chunk_id": chunk_id,
             "content": chunk,
+            "modality": modality or "text",
             "vector": vector,
         })
 
@@ -520,9 +571,22 @@ def _build_index(folder, force=False):
 
     disk_paths = sorted(_walk_supported_files(folder))
     disk_path_set = set(disk_paths)
+    model = get_model()
+
+    # EmbeddingGemma 2 changes the vector width from MiniLM's 384 dimensions.
+    # Drop the old table once, then let this normal index pass rebuild it.
+    with db_lock:
+        if TABLE_NAME in db.table_names():
+            try:
+                sample = db.open_table(TABLE_NAME).to_arrow().column("vector")[0].as_py()
+                if len(sample) != MODEL_DIMENSION:
+                    db.drop_table(TABLE_NAME)
+                    force = True
+            except Exception:
+                force = True
+
     indexed_paths = _indexed_paths_in_folder(folder)
     meta_mtimes = get_folder_file_mtimes(folder)
-    model = get_model()
 
     total_steps = len(indexed_paths - disk_path_set) + len(disk_paths)
     set_progress(active=True, current=0, total=max(total_steps, 1), folder=folder, file="")
