@@ -2,19 +2,49 @@ import os
 import sys
 import tempfile
 import subprocess
+import math
+import hashlib
+import time
 
 import pandas as pd
 from pypdf import PdfReader
 from docx import Document
 from pptx import Presentation
 
-from models import DOCUMENT_PROMPT, MODEL_DIMENSION, get_model
+from models import DOCUMENT_PROMPT, MODEL_DIMENSION, MODEL_NAME, get_model
 from lance_store import db, db_lock
 
-AETHER_DIR = os.path.join(os.path.expanduser("~"), ".aether")
+AETHER_DIR = os.environ.get("AETHER_DIR", os.path.join(os.path.expanduser("~"), ".aether"))
 os.makedirs(os.path.join(AETHER_DIR, "db"), exist_ok=True)
 
 TABLE_NAME = "documents"
+
+_profile_enabled = os.environ.get("AETHER_PROFILE_INDEX") == "1"
+_profile = {
+    "files": 0,
+    "chunks": 0,
+    "extract_seconds": 0.0,
+    "hash_seconds": 0.0,
+    "embedding_seconds": 0.0,
+    "validation_seconds": 0.0,
+    "database_seconds": 0.0,
+    "embedding_calls": 0,
+    "embedding_texts": 0,
+}
+
+
+def reset_index_profile():
+    for key in _profile:
+        _profile[key] = 0 if key in {"files", "chunks", "embedding_calls", "embedding_texts"} else 0.0
+
+
+def get_index_profile():
+    return dict(_profile)
+
+
+def _profile_add(key, elapsed):
+    if _profile_enabled:
+        _profile[key] += elapsed
 
 TEXT_EXTENSIONS = {
     ".txt",
@@ -87,6 +117,7 @@ SUPPORTED_EXTENSIONS = {
 
 PDF_OCR_MIN_CHARS = 40
 PDF_OCR_MAX_PAGES = 10
+DEFAULT_MAX_TEXT_BYTES = 10 * 1024 * 1024
 
 EXCLUDED_DIR_NAMES = {
     ".git",
@@ -144,14 +175,20 @@ def should_skip_path(path):
 
 
 def extract_pages_text(path):
+    temp_dir = tempfile.mkdtemp(prefix="aether-pages-")
     try:
-        temp_dir = tempfile.mkdtemp()
         pdf_path = os.path.join(temp_dir, os.path.basename(path) + ".pdf")
 
+        # Pass paths as AppleScript string literals, never by interpolating
+        # untrusted filenames into an expression.
+        def applescript_string(value):
+            return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+        source = applescript_string(path)
+        destination = applescript_string(pdf_path)
         script = f'''
         tell application "Pages"
-            open POSIX file "{path}"
-            export front document to POSIX file "{pdf_path}" as PDF
+            open POSIX file {source}
+            export front document to POSIX file {destination} as PDF
             close front document saving no
         end tell
         '''
@@ -169,6 +206,9 @@ def extract_pages_text(path):
         print(f"\nPAGES ERROR: {path}")
         print(e)
         return ""
+    finally:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def extract_pdf(path, max_pages=None, ocr_max_pages=PDF_OCR_MAX_PAGES):
@@ -193,7 +233,20 @@ def extract_pdf(path, max_pages=None, ocr_max_pages=PDF_OCR_MAX_PAGES):
 def extract_docx(path):
     try:
         doc = Document(path)
-        return "\n".join(p.text for p in doc.paragraphs)
+        parts = []
+        # Body order is preserved for paragraphs and tables as represented by
+        # python-docx's XML tree, rather than silently dropping tables.
+        for child in doc.element.body.iterchildren():
+            if child.tag.endswith('}p'):
+                parts.append("".join(node.text or "" for node in child.iter() if node.tag.endswith('}t')))
+            elif child.tag.endswith('}tbl'):
+                for row in child.iterchildren():
+                    cells = []
+                    for cell in row.iterchildren():
+                        cells.append(" ".join(node.text or "" for node in cell.iter() if node.tag.endswith('}t')))
+                    if cells:
+                        parts.append("\t".join(cells))
+        return "\n".join(part for part in parts if part.strip())
     except Exception as e:
         print(f"\nDOCX ERROR: {path}")
         print(e)
@@ -202,8 +255,16 @@ def extract_docx(path):
 
 def extract_text_file(path):
     try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            return f.read()
+        max_bytes = int(os.environ.get("AETHER_MAX_TEXT_BYTES", str(DEFAULT_MAX_TEXT_BYTES)))
+        if os.path.getsize(path) > max_bytes:
+            raise ExtractionError(f"Text file exceeds configured limit ({max_bytes} bytes): {path}")
+        with open(path, "rb") as f:
+            sample = f.read(8192)
+            if b"\x00" in sample:
+                raise ExtractionError(f"Binary content is not searchable text: {path}")
+            return (sample + f.read()).decode("utf-8", errors="replace")
+    except ExtractionError:
+        raise
     except Exception as e:
         print(f"\nTEXT ERROR: {path}")
         print(e)
@@ -212,8 +273,12 @@ def extract_text_file(path):
 
 def extract_xlsx(path):
     try:
-        df = pd.read_excel(path)
-        return df.to_string()
+        sheets = pd.read_excel(path, sheet_name=None, header=None)
+        parts = []
+        for name, frame in sheets.items():
+            values = frame.fillna("").astype(str).to_string(index=False, header=False)
+            parts.append(f"[Sheet: {name}]\n{values}" if values.strip() else f"[Sheet: {name}]")
+        return "\n\n".join(parts)
     except Exception as e:
         print(f"\nXLSX ERROR: {path}")
         print(e)
@@ -224,10 +289,16 @@ def extract_pptx(path):
     try:
         prs = Presentation(path)
         text = ""
-        for slide in prs.slides:
+        for slide_number, slide in enumerate(prs.slides, 1):
+            slide_parts = [f"[Slide {slide_number}]"]
             for shape in slide.shapes:
                 if hasattr(shape, "text"):
-                    text += shape.text + "\n"
+                    if shape.text.strip():
+                        slide_parts.append(shape.text)
+                if getattr(shape, "has_table", False):
+                    for row in shape.table.rows:
+                        slide_parts.append("\t".join(cell.text for cell in row.cells))
+            text += "\n".join(slide_parts) + "\n"
         return text
     except Exception as e:
         print(f"\nPPTX ERROR: {path}")
@@ -324,6 +395,10 @@ def extract_text(path):
     return ""
 
 
+class ExtractionError(RuntimeError):
+    """The source could not be read reliably enough to replace its index."""
+
+
 def chunk_text(text, chunk_size=800, overlap=150):
     chunks = []
     start = 0
@@ -342,6 +417,45 @@ def _normalize_folder(folder):
 
 def _escape_sql(value):
     return value.replace("'", "''")
+
+
+def _file_sha256(path, block_size=1024 * 1024):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        while block := handle.read(block_size):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _projected_rows(table, *, where=None, columns=None, limit=None):
+    """Read only requested columns, using LanceDB's filtered query when available."""
+    try:
+        query = table.search()
+        if where:
+            query = query.where(where)
+        if columns:
+            query = query.select(columns)
+        if limit is not None:
+            query = query.limit(limit)
+        return query.to_list()
+    except Exception:
+        try:
+            query = table.query()
+            if where:
+                query = query.where(where)
+            if columns:
+                query = query.select(columns)
+            if limit is not None:
+                query = query.limit(limit)
+            return query.to_list()
+        except Exception:
+            # Compatibility fallback for older LanceDB/table fakes. The
+            # projection is still applied before returning to callers.
+            rows = table.to_arrow().to_pylist()
+            return [
+                {key: row.get(key) for key in (columns or row.keys())}
+                for row in rows
+            ]
 
 
 def _path_in_folder(path, folder):
@@ -366,7 +480,7 @@ def delete_folder_from_index(folder):
             pass
 
         try:
-            paths = table.to_arrow().column("path").to_pylist()
+            paths = [row.get("path") for row in _projected_rows(table, columns=["path"])]
             for path in {p for p in paths if _path_in_folder(p, folder)}:
                 table.delete(f"path = '{_escape_sql(path)}'")
         except Exception as e:
@@ -381,7 +495,7 @@ def folder_is_indexed(folder):
             if TABLE_NAME not in db.table_names():
                 return False
             table = db.open_table(TABLE_NAME)
-            paths = table.to_arrow().column("path").to_pylist()
+            paths = [row.get("path") for row in _projected_rows(table, columns=["path"])]
         return any(_path_in_folder(path, folder) for path in paths)
     except Exception:
         return False
@@ -429,7 +543,7 @@ def get_folder_stats(folder):
                     "last_indexed": last_indexed,
                 }
             table = db.open_table(TABLE_NAME)
-            paths = table.to_arrow().column("path").to_pylist()
+            paths = [row.get("path") for row in _projected_rows(table, columns=["path"])]
         folder_paths = [p for p in paths if _path_in_folder(p, folder)]
         return {
             "indexed": bool(folder_paths),
@@ -468,7 +582,16 @@ def _indexed_paths_in_folder(folder):
             if TABLE_NAME not in db.table_names():
                 return set()
             table = db.open_table(TABLE_NAME)
-            paths = table.to_arrow().column("path").to_pylist()
+            escaped = _escape_sql(folder + os.sep)
+            exact = _escape_sql(folder)
+            paths = [
+                row.get("path")
+                for row in _projected_rows(
+                    table,
+                    where=f"path LIKE '{escaped}%' OR path = '{exact}'",
+                    columns=["path"],
+                )
+            ]
         return {os.path.normpath(p) for p in paths if _path_in_folder(p, folder)}
     except Exception:
         return set()
@@ -485,7 +608,43 @@ def _parent_indexed_folder(path):
     return None
 
 
-def _index_file(path, model=None):
+def _write_index_rows(path, rows):
+    """Replace one file's rows, restoring its prior rows if insertion fails."""
+    started = time.perf_counter()
+    with db_lock:
+        if TABLE_NAME not in db.table_names():
+            db.create_table(TABLE_NAME, data=rows)
+        else:
+            table = db.open_table(TABLE_NAME)
+            try:
+                schema_names = set(table.schema.names)
+                rows_to_write = [{key: value for key, value in row.items() if key in schema_names} for row in rows]
+            except Exception:
+                rows_to_write = rows
+            old_rows = _projected_rows(table, where=f"path = '{_escape_sql(path)}'")
+            if old_rows:
+                try:
+                    table.delete(f"path = '{_escape_sql(path)}'")
+                except Exception as exc:
+                    raise RuntimeError(f"Could not remove old index rows for {path}") from exc
+            try:
+                table.add(rows_to_write)
+            except Exception:
+                if old_rows:
+                    try:
+                        table.add(old_rows)
+                    except Exception as restore_error:
+                        raise RuntimeError(
+                            f"Index write and restoration failed for {path}: {restore_error}"
+                        ) from restore_error
+                raise
+    _profile_add("database_seconds", time.perf_counter() - started)
+    if _profile_enabled:
+        _profile["files"] += 1
+        _profile["chunks"] += len(rows)
+
+
+def _index_file(path, model=None, text_vectors=None):
     path = os.path.normpath(path)
     if should_skip_path(path):
         return 0
@@ -495,7 +654,14 @@ def _index_file(path, model=None):
         return 0
 
     print(f"Processing: {path}")
-    text = extract_text(path)
+    if not os.path.isfile(path):
+        raise ExtractionError(f"File disappeared during indexing: {path}")
+    started = time.perf_counter()
+    try:
+        text = extract_text(path)
+    except Exception as exc:
+        raise ExtractionError(f"Extraction failed for {path}: {exc}") from exc
+    _profile_add("extract_seconds", time.perf_counter() - started)
     image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
     audio_exts = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus"}
     video_exts = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
@@ -509,14 +675,31 @@ def _index_file(path, model=None):
 
     # Media can be semantically indexed even when it has no OCR/transcript.
     if not text.strip() and modality is None:
-        delete_file_from_index(path)
-        return 0
+        # An empty extraction is ambiguous (empty file, unreadable file, or a
+        # parser failure). Preserve the last known-good rows and let the
+        # caller report this file as failed.
+        raise ExtractionError(f"No searchable content extracted from {path}")
 
     if model is None:
         model = get_model()
 
+    started = time.perf_counter()
+    try:
+        stat = os.stat(path)
+        fingerprint = _file_sha256(path)
+    except OSError as exc:
+        raise ExtractionError(f"File changed or disappeared during indexing: {path}") from exc
+    _profile_add("hash_seconds", time.perf_counter() - started)
+
     chunks = chunk_text(text) if text.strip() else [""]
     rows = []
+    if modality is None and text_vectors is None:
+        batch_size = max(1, int(os.environ.get("AETHER_EMBED_BATCH_SIZE", "16")))
+        started = time.perf_counter()
+        text_vectors = _encode_text_batches(model, chunks, batch_size)
+        _profile_add("embedding_seconds", time.perf_counter() - started)
+    else:
+        text_vectors = []
     for chunk_id, chunk in enumerate(chunks):
         if modality:
             media_kwargs = {"show_progress_bar": False}
@@ -534,11 +717,7 @@ def _index_file(path, model=None):
                 **media_kwargs,
             ).tolist()
         else:
-            vector = model.encode(
-                chunk,
-                prompt_name=DOCUMENT_PROMPT,
-                show_progress_bar=False,
-            ).tolist()
+            vector = text_vectors[chunk_id]
         rows.append({
             "path": path,
             "file_name": os.path.basename(path),
@@ -546,22 +725,142 @@ def _index_file(path, model=None):
             "content": chunk,
             "modality": modality or "text",
             "vector": vector,
+            "file_size": stat.st_size,
+            "mtime": stat.st_mtime,
+            "fingerprint": fingerprint,
+            "embedding_model": MODEL_NAME,
+            "embedding_dimension": MODEL_DIMENSION,
+            "extraction_status": "complete",
         })
 
-    # Keep replacement atomic with respect to searches in this process. The
-    # expensive extraction and embedding work above intentionally stays outside.
-    with db_lock:
-        if TABLE_NAME not in db.table_names():
-            db.create_table(TABLE_NAME, data=rows)
-        else:
-            table = db.open_table(TABLE_NAME)
-            try:
-                table.delete(f"path = '{_escape_sql(path)}'")
-            except Exception:
-                pass
-            table.add(rows)
+    started = time.perf_counter()
+    _validate_index_rows(rows, path)
+    _profile_add("validation_seconds", time.perf_counter() - started)
+
+    # Prepare and validate outside the lock. Keep the old rows in memory while
+    # replacing them so a failed write can restore the previous document.
+    _write_index_rows(path, rows)
     print(f"Indexed: {path}")
     return len(rows)
+
+
+def _validate_index_rows(rows, path):
+    """Reject malformed rows before touching LanceDB."""
+    if not rows:
+        raise ValueError(f"No index rows prepared for {path}")
+    for expected_chunk_id, row in enumerate(rows):
+        vector = row.get("vector")
+        if row.get("path") != path or row.get("chunk_id") != expected_chunk_id:
+            raise ValueError(f"Invalid index metadata prepared for {path}")
+        if not isinstance(vector, list) or len(vector) != MODEL_DIMENSION:
+            raise ValueError(f"Invalid embedding dimension for {path}")
+        if not all(isinstance(value, (int, float)) and math.isfinite(value) for value in vector):
+            raise ValueError(f"Invalid embedding values for {path}")
+
+
+def _encode_text_batches(model, chunks, batch_size):
+    """Encode bounded batches, falling back to one item if lists are unsupported."""
+    from index_progress import is_cancelled
+
+    vectors = []
+    for start in range(0, len(chunks), batch_size):
+        if is_cancelled():
+            raise InterruptedError("Indexing cancelled")
+        batch = chunks[start : start + batch_size]
+        kwargs = {"prompt_name": DOCUMENT_PROMPT, "show_progress_bar": False}
+        try:
+            encoded = model.encode(batch, **kwargs)
+            encoded = encoded.tolist() if hasattr(encoded, "tolist") else encoded
+            if len(encoded) != len(batch):
+                raise ValueError("Embedding batch length did not match chunk count")
+            vectors.extend(encoded)
+            if _profile_enabled:
+                _profile["embedding_calls"] += 1
+                _profile["embedding_texts"] += len(batch)
+        except (TypeError, ValueError, AttributeError):
+            for chunk in batch:
+                if is_cancelled():
+                    raise InterruptedError("Indexing cancelled")
+                encoded = model.encode(chunk, **kwargs)
+                if _profile_enabled:
+                    _profile["embedding_calls"] += 1
+                    _profile["embedding_texts"] += 1
+                vectors.append(encoded.tolist() if hasattr(encoded, "tolist") else encoded)
+    return vectors
+
+
+def _index_text_batch(paths, model, batch_size):
+    """Index text files using bounded batches shared across file boundaries."""
+    from index_progress import is_cancelled
+
+    prepared = []
+    texts = []
+    for path in paths:
+        if is_cancelled():
+            raise InterruptedError("Indexing cancelled")
+        path = os.path.normpath(path)
+        if not os.path.isfile(path):
+            raise ExtractionError(f"File disappeared during indexing: {path}")
+        started = time.perf_counter()
+        text = extract_text(path)
+        _profile_add("extract_seconds", time.perf_counter() - started)
+        if not text.strip():
+            raise ExtractionError(f"No searchable content extracted from {path}")
+        started = time.perf_counter()
+        try:
+            stat = os.stat(path)
+            fingerprint = _file_sha256(path)
+        except OSError as exc:
+            raise ExtractionError(f"File changed or disappeared during indexing: {path}") from exc
+        _profile_add("hash_seconds", time.perf_counter() - started)
+        chunks = chunk_text(text)
+        prepared.append((path, chunks, stat, fingerprint))
+        texts.extend(chunks)
+
+    started = time.perf_counter()
+    vectors = _encode_text_batches(model, texts, batch_size)
+    _profile_add("embedding_seconds", time.perf_counter() - started)
+    if is_cancelled():
+        raise InterruptedError("Indexing cancelled")
+    offset = 0
+    counts = {}
+    write_error = None
+    for path, chunks, stat, fingerprint in prepared:
+        file_vectors = vectors[offset : offset + len(chunks)]
+        offset += len(chunks)
+        rows = []
+        for chunk_id, (chunk, vector) in enumerate(zip(chunks, file_vectors)):
+            rows.append({
+                "path": path,
+                "file_name": os.path.basename(path),
+                "chunk_id": chunk_id,
+                "content": chunk,
+                "modality": "text",
+                "vector": vector,
+                "file_size": stat.st_size,
+                "mtime": stat.st_mtime,
+                "fingerprint": fingerprint,
+                "embedding_model": MODEL_NAME,
+                "embedding_dimension": MODEL_DIMENSION,
+                "extraction_status": "complete",
+            })
+        started = time.perf_counter()
+        _validate_index_rows(rows, path)
+        _profile_add("validation_seconds", time.perf_counter() - started)
+        try:
+            _write_index_rows(path, rows)
+            counts[path] = len(rows)
+        except InterruptedError:
+            raise
+        except Exception as exc:
+            # LanceDB does not provide a transaction spanning documents. Keep
+            # processing the remaining validated documents, then surface the
+            # first failure so the caller can report/retry that document.
+            if write_error is None:
+                write_error = exc
+    if write_error is not None:
+        raise write_error
+    return counts
 
 
 def _build_index(folder, force=False):
@@ -583,6 +882,14 @@ def _build_index(folder, force=False):
                     db.drop_table(TABLE_NAME)
                     force = True
             except Exception:
+                # An unreadable or legacy schema is not safe to append to.
+                # Drop it before the first replacement so the new model space
+                # gets a correctly typed table instead of failing per file.
+                try:
+                    if TABLE_NAME in db.table_names():
+                        db.drop_table(TABLE_NAME)
+                except Exception:
+                    pass
                 force = True
 
     indexed_paths = _indexed_paths_in_folder(folder)
@@ -605,12 +912,54 @@ def _build_index(folder, force=False):
     updated = 0
     skipped = 0
     failed_paths = []
+    pending = []
+
+    def flush_pending():
+        nonlocal updated
+        if not pending:
+            return
+        paths = list(pending)
+        pending.clear()
+        try:
+            counts = _index_text_batch(paths, model, max(1, int(os.environ.get("AETHER_EMBED_BATCH_SIZE", "16"))))
+            for path in paths:
+                mtime = os.path.getmtime(path)
+                meta_mtimes[path] = (mtime, os.path.getsize(path))
+                updated += 1
+                _mark_progress()
+        except InterruptedError:
+            raise
+        except Exception as batch_error:
+            # A bad document must not discard otherwise valid work. Retry the
+            # batch one file at a time, preserving the established failure and
+            # replacement semantics for each file.
+            print(f"INDEX BATCH FALLBACK: {batch_error}", file=sys.stderr)
+            for path in paths:
+                try:
+                    count = _index_file(path, model=model)
+                    if count:
+                        updated += 1
+                        meta_mtimes[path] = (os.path.getmtime(path), os.path.getsize(path))
+                    else:
+                        failed_paths.append(path)
+                except (ExtractionError, OSError, ValueError, RuntimeError) as exc:
+                    print(f"INDEX SKIP: {path}: {exc}", file=sys.stderr)
+                    failed_paths.append(path)
+                    meta_mtimes.pop(path, None)
+                _mark_progress()
+
+    def _mark_progress():
+        nonlocal step
+        step += 1
+        set_progress(active=True, current=step, total=max(total_steps, 1), folder=folder, file="")
+
     for path in disk_paths:
         if is_cancelled():
             raise InterruptedError("Indexing cancelled")
 
         try:
             mtime = os.path.getmtime(path)
+            size = os.path.getsize(path)
         except OSError:
             failed_paths.append(path)
             step += 1
@@ -624,22 +973,46 @@ def _build_index(folder, force=False):
             file=os.path.basename(path),
         )
 
-        if not force and path in indexed_paths and meta_mtimes.get(path) == mtime:
+        previous_fingerprint = meta_mtimes.get(path)
+        unchanged = (
+            previous_fingerprint == mtime
+            or previous_fingerprint == (mtime, size)
+            or previous_fingerprint == [mtime, size]
+        )
+        if not force and path in indexed_paths and unchanged:
             skipped += 1
             step += 1
             continue
-
-        chunk_count = _index_file(path, model=model)
-        if chunk_count:
-            updated += 1
-            meta_mtimes[path] = mtime
+        if os.path.splitext(path)[1].lower() in TEXT_EXTENSIONS:
+            pending.append(path)
+            # Use a conservative byte-size estimate here so collection does
+            # not re-extract every pending file just to decide when to flush.
+            # `_index_text_batch` performs the authoritative chunking and
+            # keeps model calls bounded even when one document is large.
+            estimated_chunks = sum(
+                max(1, math.ceil(os.path.getsize(p) / 650))
+                for p in pending
+                if os.path.exists(p)
+            )
+            if estimated_chunks >= max(1, int(os.environ.get("AETHER_EMBED_BATCH_SIZE", "16"))):
+                flush_pending()
         else:
-            failed_paths.append(path)
-            if path in indexed_paths:
-                updated += 1
-            meta_mtimes.pop(path, None)
-        step += 1
-        set_progress(active=True, current=step, total=max(total_steps, 1), folder=folder, file=os.path.basename(path))
+            flush_pending()
+            try:
+                chunk_count = _index_file(path, model=model)
+                if chunk_count:
+                    updated += 1
+                    meta_mtimes[path] = (mtime, os.path.getsize(path))
+                else:
+                    failed_paths.append(path)
+                    meta_mtimes.pop(path, None)
+            except (ExtractionError, OSError, ValueError, RuntimeError) as exc:
+                print(f"INDEX SKIP: {path}: {exc}", file=sys.stderr)
+                failed_paths.append(path)
+                meta_mtimes.pop(path, None)
+            _mark_progress()
+
+    flush_pending()
 
     for path in list(meta_mtimes):
         if path not in disk_path_set:

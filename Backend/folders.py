@@ -3,7 +3,7 @@ import os
 import shutil
 from datetime import datetime, timezone
 
-CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".aether")
+CONFIG_DIR = os.environ.get("AETHER_DIR", os.path.join(os.path.expanduser("~"), ".aether"))
 CONFIG_FILE = os.path.join(CONFIG_DIR, "folders.json")
 LEGACY_CONFIG_FILE = "folders.json"
 

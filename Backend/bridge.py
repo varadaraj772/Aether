@@ -5,12 +5,13 @@ import json
 import os
 import sys
 import threading
+import uuid
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
-AETHER_DIR = os.path.join(os.path.expanduser("~"), ".aether")
+AETHER_DIR = os.environ.get("AETHER_DIR", os.path.join(os.path.expanduser("~"), ".aether"))
 DB_DIR = os.path.join(AETHER_DIR, "db")
 os.makedirs(DB_DIR, exist_ok=True)
 os.chdir(DB_DIR)
@@ -26,9 +27,17 @@ _index_result = None
 _index_error = None
 _index_done = False
 _index_cancelled = False
+_index_state = "idle"
+_index_job_id = None
 _stdout_gate_installed = False
 _rpc_stdout = sys.stdout
 _rpc_stdout_lock = threading.Lock()
+
+# Convert a state left by a previously terminated backend into an explicit
+# recoverable state before accepting a new request.
+from index_progress import recover_interrupted_job
+_recovered_job = recover_interrupted_job()
+_index_state = _recovered_job.get("state", "idle") or "idle"
 
 
 class _RPCStdout:
@@ -88,12 +97,13 @@ def _index_is_active():
 
 def _start_index_job(target, *args, **kwargs):
     """Run indexing in a daemon thread. Returns immediately with async ack."""
-    global _index_thread, _index_result, _index_error, _index_done, _index_cancelled
+    global _index_thread, _index_result, _index_error, _index_done, _index_cancelled, _index_state, _index_job_id
 
     _ensure_stdout_gate()
 
     def worker():
-        global _index_thread, _index_result, _index_error, _index_done, _index_cancelled
+        global _index_thread, _index_result, _index_error, _index_done, _index_cancelled, _index_state, _index_job_id
+        from index_progress import finish_job
         try:
             result = target(*args, **kwargs)
             with _index_lock:
@@ -101,18 +111,24 @@ def _start_index_job(target, *args, **kwargs):
                 _index_error = None
                 _index_cancelled = False
                 _index_done = True
+                _index_state = "completed"
+                finish_job("completed")
         except InterruptedError as exc:
             with _index_lock:
                 _index_result = None
                 _index_error = str(exc) or "Indexing cancelled"
                 _index_cancelled = True
                 _index_done = True
+                _index_state = "cancelled"
+                finish_job("cancelled", error=_index_error)
         except Exception as exc:
             with _index_lock:
                 _index_result = None
                 _index_error = str(exc)
                 _index_cancelled = False
                 _index_done = True
+                _index_state = "failed"
+                finish_job("failed", error=_index_error)
             print(f"INDEX ERROR: {exc}", file=sys.stderr)
         finally:
             with _index_lock:
@@ -122,13 +138,16 @@ def _start_index_job(target, *args, **kwargs):
     with _index_lock:
         if _index_thread is not None:
             raise ValueError("Indexing already in progress")
-        from index_progress import clear_progress
+        from index_progress import clear_progress, start_job
 
         clear_progress()
         _index_result = None
         _index_error = None
         _index_done = False
         _index_cancelled = False
+        _index_state = "running"
+        _index_job_id = uuid.uuid4().hex
+        start_job(_index_job_id, operation=getattr(target, "__name__", "index"))
         _index_thread = thread
         thread.start()
     return {"started": True, "async": True}
@@ -136,7 +155,7 @@ def _start_index_job(target, *args, **kwargs):
 
 def _index_status():
     """Poll async index job. Clears result/error after one successful done read."""
-    global _index_result, _index_error, _index_done, _index_cancelled
+    global _index_result, _index_error, _index_done, _index_cancelled, _index_state
 
     with _index_lock:
         active = _index_thread is not None
@@ -144,18 +163,21 @@ def _index_status():
         result = _index_result
         error = _index_error
         cancelled = _index_cancelled
+        state = _index_state
         if done:
             # Consume completion so subsequent polls are idle until next index.
             _index_result = None
             _index_error = None
             _index_done = False
             _index_cancelled = False
+            _index_state = "idle"
         return {
             "active": active,
             "done": done,
             "result": result,
             "error": error,
             "cancelled": cancelled,
+            "state": state,
         }
 
 
@@ -207,18 +229,21 @@ def handle(request):
         from search import search
 
         folder = args.get("folder")
+        file_type = args.get("file_type")
         recent_paths = args.get("recent_paths") or []
         if not isinstance(recent_paths, list):
             recent_paths = []
         recent_items = args.get("recent_items") or []
         if not isinstance(recent_items, list):
             recent_items = []
-        results = search(
-            query,
-            folder=folder,
-            recent_paths=recent_paths,
-            recent_items=recent_items,
-        )
+        search_args = {
+            "folder": folder,
+            "recent_paths": recent_paths,
+            "recent_items": recent_items,
+        }
+        if isinstance(file_type, str) and file_type:
+            search_args["file_type"] = file_type
+        results = search(query, **search_args)
         for item in results:
             item.pop("vector", None)
         return results
@@ -368,17 +393,23 @@ def main():
         line = line.strip()
         if not line:
             continue
+        request = None
         try:
             request = json.loads(line)
             data = handle(request)
             response = {"id": request.get("id"), "ok": True, "data": data}
         except Exception as exc:
             response = {
-                "id": request.get("id") if "request" in locals() else None,
+                "id": request.get("id") if isinstance(request, dict) else None,
                 "ok": False,
                 "error": str(exc),
             }
         _emit_response(response)
+        if (
+            os.environ.get("AETHER_TEST_EXIT_AFTER_START") == "1"
+            and request.get("cmd") in {"index_folder", "index_all"}
+        ):
+            os._exit(75)
 
 
 if __name__ == "__main__":

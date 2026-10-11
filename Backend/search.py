@@ -49,6 +49,7 @@ _EXACT_WEIGHT = 2.0
 _SEMANTIC_WEIGHT = 0.55
 _MTIME_MAX_BOOST = 0.05
 _RECENT_HALF_LIFE_DAYS = 14.0
+_RRF_K = 60
 
 
 def _match_snippet(content, query, length=140):
@@ -242,6 +243,8 @@ def _lexical_scores(item, query):
     file_tokens = _tokens(stem)
     content_tokens = set(_tokens(item.get("content", "")))
 
+    content = (item.get("content") or "").casefold()
+    phrase = 1.0 if len(query_tokens) > 1 and query_normalized and query_normalized in content else 0.0
     exact = 1.0 if query_normalized and query_normalized in (file_name, stem) else 0.0
     if query_tokens:
         token_matches = sum(
@@ -268,10 +271,10 @@ def _lexical_scores(item, query):
         + complete_bonus
     )
     content_score = content_matches * _CONTENT_WEIGHT
-    return exact, filename_score, content_score
+    return exact + phrase, filename_score, content_score
 
 
-def search(query, folder=None, recent_paths=None, recent_items=None):
+def search(query, folder=None, recent_paths=None, recent_items=None, file_type=None):
     model = get_model()
     # Embed the raw query so synonym expansion does not dilute semantics.
     vector = model.encode(
@@ -302,6 +305,58 @@ def search(query, folder=None, recent_paths=None, recent_items=None):
             except Exception:
                 return []
 
+        # Keep lexical retrieval independent from the semantic candidate pool.
+        # LanceDB's FTS index is optional in existing installations, so use a
+        # bounded local lexical pass as a compatibility fallback. This is only
+        # used to discover candidates; final scoring remains file-level below.
+        lexical_rows = []
+        try:
+            lexical_rows = table.to_arrow().to_pylist()
+        except Exception:
+            lexical_rows = []
+
+    def matches_file_type(item):
+        if not file_type or file_type == "all":
+            return True
+        ext = os.path.splitext(item.get("file_name") or item.get("path", ""))[1].lower().lstrip(".")
+        groups = {
+            "docs": {"pdf", "docx", "pages", "xlsx", "pptx", "txt", "md", "rtf", "eml"},
+            "code": {"py", "swift", "js", "ts", "tsx", "jsx", "html", "css", "rs", "go", "java", "kt", "c", "cpp", "h", "hpp", "m", "mm", "rb", "php", "sh", "yaml", "yml", "toml", "xml", "sql", "r", "scala", "vue", "svelte", "json", "md", "txt"},
+            "data": {"csv", "log", "json", "tsv", "parquet"},
+            "images": {"png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"},
+        }
+        return ext in groups.get(file_type, set())
+
+    if lexical_rows:
+        lexical_rows = [
+            item for item in lexical_rows
+            if (not folder or _path_in_folder(item.get("path", ""), folder))
+            and matches_file_type(item)
+        ]
+        lexical_rows.sort(
+            key=lambda item: (
+                -sum(_token_satisfied(token, set(_tokens(item.get("content", ""))))
+                    for token in query_tokens),
+                -_lexical_scores(item, query)[0],
+                item.get("path", ""),
+                item.get("chunk_id", 0),
+            )
+        )
+        semantic_keys = {(item.get("path"), item.get("chunk_id")) for item in results}
+        for item in lexical_rows[:200]:
+            key = (item.get("path"), item.get("chunk_id"))
+            if key not in semantic_keys:
+                item["_distance"] = 1.0
+                results.append(item)
+
+    semantic_rank = {
+        (item.get("path"), item.get("chunk_id")): index
+        for index, item in enumerate(results[:100], 1)
+    }
+    lexical_rank = {}
+    for index, item in enumerate(lexical_rows[:200], 1):
+        lexical_rank[(item.get("path"), item.get("chunk_id"))] = index
+
     for item in results:
         distance = max(float(item.get("_distance", 0) or 0), 0.0)
         semantic_score = 1 / (distance + 1)
@@ -315,6 +370,13 @@ def search(query, folder=None, recent_paths=None, recent_items=None):
         item["keyword_score"] = keyword_score
         item["path_score"] = path_score
         item["recent_score"] = recent_score
+        key = (item.get("path"), item.get("chunk_id"))
+        rrf = 0.0
+        if lexical_rows and key in semantic_rank:
+            rrf += 1.0 / (_RRF_K + semantic_rank[key])
+        if lexical_rows and key in lexical_rank:
+            rrf += 1.0 / (_RRF_K + lexical_rank[key])
+        item["rrf_score"] = rrf
         item["final_score"] = (
             (exact_score * _EXACT_WEIGHT)
             + filename_score
@@ -322,6 +384,7 @@ def search(query, folder=None, recent_paths=None, recent_items=None):
             + path_score
             + recent_score
             + (semantic_score * _SEMANTIC_WEIGHT)
+            + (rrf * 0.5)
         )
         item["match_snippet"] = _match_snippet(item.get("content", ""), query)
 
@@ -337,8 +400,11 @@ def search(query, folder=None, recent_paths=None, recent_items=None):
                 item["recency_score"] = _MTIME_MAX_BOOST * max(0.0, 1.0 - (age / thirty_days))
                 item["final_score"] += item["recency_score"]
 
-    if folder:
-        results = [item for item in results if _path_in_folder(item.get("path", ""), folder)]
+    results = [
+        item for item in results
+        if (not folder or _path_in_folder(item.get("path", ""), folder))
+        and matches_file_type(item)
+    ]
 
     seen_files = {}
     for item in results:

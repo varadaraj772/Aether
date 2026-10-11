@@ -164,6 +164,9 @@ struct SearchResultItem: Identifiable, Hashable, Codable {
     let content: String
     let finalScore: Double
     let matchSnippet: String?
+    let keywordScore: Double
+    let semanticScore: Double
+    let pathScore: Double
 
     enum CodingKeys: String, CodingKey {
         case path
@@ -172,15 +175,21 @@ struct SearchResultItem: Identifiable, Hashable, Codable {
         case content
         case finalScore = "final_score"
         case matchSnippet = "match_snippet"
+        case keywordScore = "keyword_score"
+        case semanticScore = "semantic_score"
+        case pathScore = "path_score"
     }
 
-    init(path: String, fileName: String, chunkId: Int, content: String, finalScore: Double, matchSnippet: String?) {
+    init(path: String, fileName: String, chunkId: Int, content: String, finalScore: Double, matchSnippet: String?, keywordScore: Double = 0, semanticScore: Double = 0, pathScore: Double = 0) {
         self.path = path
         self.fileName = fileName
         self.chunkId = chunkId
         self.content = content
         self.finalScore = finalScore
         self.matchSnippet = matchSnippet
+        self.keywordScore = keywordScore
+        self.semanticScore = semanticScore
+        self.pathScore = pathScore
     }
 
     init(from decoder: Decoder) throws {
@@ -191,10 +200,16 @@ struct SearchResultItem: Identifiable, Hashable, Codable {
         content = try container.decodeIfPresent(String.self, forKey: .content) ?? ""
         finalScore = try container.decodeIfPresent(Double.self, forKey: .finalScore) ?? 0
         matchSnippet = try container.decodeIfPresent(String.self, forKey: .matchSnippet)
+        keywordScore = try container.decodeIfPresent(Double.self, forKey: .keywordScore) ?? 0
+        semanticScore = try container.decodeIfPresent(Double.self, forKey: .semanticScore) ?? 0
+        pathScore = try container.decodeIfPresent(Double.self, forKey: .pathScore) ?? 0
     }
 
-    var relevancePercent: Int {
-        Int(finalScore * 100)
+    var matchReason: String? {
+        if keywordScore >= 1.0 { return "Filename or exact text" }
+        if pathScore > 0 { return "Folder match" }
+        if semanticScore > 0 { return "Meaning match" }
+        return nil
     }
 
     var displaySnippet: String {

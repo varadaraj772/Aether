@@ -15,20 +15,23 @@ def related_files(path, limit=8):
         if TABLE_NAME not in db.table_names():
             return []
         table = db.open_table(TABLE_NAME)
-        arrow = table.to_arrow()
-        paths = arrow.column("path").to_pylist()
-        vectors = arrow.column("vector").to_pylist()
-
         source_vector = None
-        for idx, candidate in enumerate(paths):
-            if candidate == path:
-                source_vector = vectors[idx]
-                break
+        # A filtered projection avoids loading every chunk's content/vector.
+        try:
+            rows = table.search().where(
+                f"path = '{_escape_sql(path)}'"
+            ).select(["vector"]).limit(1).to_list()
+        except Exception:
+            rows = []
+        if rows:
+            source_vector = rows[0].get("vector")
 
         if source_vector is None:
             return []
 
-        hits = table.search(source_vector).limit(limit + 12).to_list()
+        hits = table.search(source_vector).select(
+            ["path", "file_name", "content"]
+        ).limit(limit + 12).to_list()
     seen = set()
     related = []
     for item in hits:

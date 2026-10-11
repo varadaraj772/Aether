@@ -18,10 +18,12 @@ struct ResultRowView: View {
 
         Spacer(minLength: 0)
 
-        Text("\(item.relevancePercent)%")
-          .font(.system(size: 10, weight: .medium))
-          .foregroundStyle(.tertiary)
-          .monospacedDigit()
+        if let reason = item.matchReason {
+          Text(reason)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(.tertiary)
+            .lineLimit(1)
+        }
       }
 
       Text(folderHint)
@@ -46,7 +48,7 @@ struct ResultRowView: View {
           .stroke(colors.accent.opacity(0.28), lineWidth: 1)
       }
     }
-    .help("\(item.path)\n\(item.relevancePercent)% match · Space for Quick Look · Double-click to open")
+    .help("\(item.path)\nSpace for Quick Look · Double-click to open")
   }
 }
 

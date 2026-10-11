@@ -1,0 +1,12 @@
+{
+  "documents": [
+    {"path": "/docs/project-plan.md", "file_name": "project-plan.md", "content": "milestones and delivery schedule"},
+    {"path": "/docs/meeting-notes.md", "file_name": "meeting-notes.md", "content": "agenda decisions and action items"},
+    {"path": "/src/search.py", "file_name": "search.py", "content": "RRF lexical retrieval and ranking"}
+  ],
+  "queries": [
+    {"query": "project plan", "relevant": ["/docs/project-plan.md"]},
+    {"query": "meeting agenda", "relevant": ["/docs/meeting-notes.md"]},
+    {"query": "search ranking", "relevant": ["/src/search.py"]}
+  ]
+}

@@ -58,3 +58,6 @@ htmlcov/
 
 # Logs
 *.log
+
+IMPLEMENTATION_STATUS.md
+

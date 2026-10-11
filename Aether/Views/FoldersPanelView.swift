@@ -165,24 +165,22 @@ struct FoldersPanelView: View {
   private func reloadBrowseEntries() {
     browseLoadTask?.cancel()
 
-    Task { @MainActor in
-      guard let path = currentBrowsePath else {
-        browseEntries = []
-        isLoadingBrowse = false
-        return
-      }
+    guard let path = currentBrowsePath else {
+      browseEntries = []
+      isLoadingBrowse = false
+      return
+    }
 
-      isLoadingBrowse = true
-      let sort = browseSort
-      browseLoadTask = Task { @MainActor in
-        let entries = await Task.detached(priority: .userInitiated) {
-          FolderBrowser.list(path: path, sort: sort)
-        }.value
+    isLoadingBrowse = true
+    let sort = browseSort
+    browseLoadTask = Task { @MainActor in
+      let entries = await Task.detached(priority: .userInitiated) {
+        FolderBrowser.list(path: path, sort: sort)
+      }.value
 
-        guard !Task.isCancelled else { return }
-        browseEntries = entries
-        isLoadingBrowse = false
-      }
+      guard !Task.isCancelled else { return }
+      browseEntries = entries
+      isLoadingBrowse = false
     }
   }
 

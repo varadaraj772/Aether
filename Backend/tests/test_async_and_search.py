@@ -6,6 +6,7 @@ import io
 import os
 import sys
 import threading
+import tempfile
 import time
 import types
 import unittest
@@ -26,6 +27,11 @@ if "lancedb" not in sys.modules:
     except ImportError:
         sys.modules["lancedb"] = types.SimpleNamespace(connect=lambda _path: object())
 import search
+
+try:
+    import indexer
+except Exception:
+    indexer = None
 
 
 class _FakeModel:
@@ -53,17 +59,23 @@ class _FakeSearch:
 
 
 class _FakeTable:
-    def __init__(self, rows, lock_state=None):
+    def __init__(self, rows, lock_state=None, arrow_rows=None):
         self.rows = rows
         self.lock_state = lock_state
+        self.arrow_rows = arrow_rows
 
     def search(self, _vector):
         return _FakeSearch(self.rows, self.lock_state)
 
+    def to_arrow(self):
+        if self.arrow_rows is None:
+            raise RuntimeError("lexical table scan unavailable in legacy fake")
+        return types.SimpleNamespace(to_pylist=lambda: [dict(row) for row in self.arrow_rows])
+
 
 class _FakeDB:
-    def __init__(self, rows, lock_state=None):
-        self.table = _FakeTable(rows, lock_state)
+    def __init__(self, rows, lock_state=None, arrow_rows=None):
+        self.table = _FakeTable(rows, lock_state, arrow_rows)
 
     def table_names(self):
         return ["documents"]
@@ -194,6 +206,50 @@ class SearchRankingTests(unittest.TestCase):
         ]
         paths = [item["path"] for item in self._search(rows, query="query", folder="/docs")]
         self.assertEqual(paths, ["/docs/a.txt"])
+
+    def test_exact_phrase_in_content_is_ranked_and_snippet_is_preserved(self):
+        rows = [
+            {"path": "/docs/other.txt", "file_name": "other.txt", "chunk_id": 0,
+             "content": "unrelated words", "_distance": 0.0},
+            {"path": "/docs/phrase.txt", "file_name": "phrase.txt", "chunk_id": 0,
+             "content": "The launch checklist is ready for review.", "_distance": 10.0},
+        ]
+        ranked = self._search(rows, query="launch checklist")
+        self.assertEqual(ranked[0]["path"], "/docs/phrase.txt")
+        self.assertIn("launch checklist", ranked[0]["match_snippet"].lower())
+
+    def test_file_type_filter_is_applied_before_file_aggregation(self):
+        rows = [
+            {"path": "/docs/readme.md", "file_name": "readme.md", "chunk_id": 0,
+             "content": "query", "_distance": 0.0},
+            {"path": "/docs/data.csv", "file_name": "data.csv", "chunk_id": 0,
+             "content": "query", "_distance": 0.0},
+        ]
+        ranked = self._search(rows, query="query")
+        with mock.patch.object(search, "get_model", return_value=_FakeModel()):
+            # Call directly with a real fake DB so the filter exercises the backend path.
+            with mock.patch.object(search, "db", _FakeDB(rows)):
+                filtered = search.search("query", file_type="data")
+        self.assertEqual([item["path"] for item in filtered], ["/docs/data.csv"])
+
+    def test_lexical_candidate_outside_semantic_pool_is_retrieved_and_fused(self):
+        semantic_rows = [{
+            "path": "/docs/semantic.txt", "file_name": "semantic.txt",
+            "chunk_id": 0, "content": "conceptual material", "_distance": 0.0,
+        }]
+        lexical_rows = semantic_rows + [{
+            "path": "/docs/exact.txt", "file_name": "exact.txt",
+            "chunk_id": 0, "content": "release train identifier", "_distance": 0.0,
+        }]
+        fake_db = _FakeDB(semantic_rows, arrow_rows=lexical_rows)
+        with mock.patch.object(search, "db", fake_db), mock.patch.object(
+            search, "get_model", return_value=_FakeModel()
+        ):
+            results = search.search("release train", file_type="all")
+        self.assertIn("/docs/exact.txt", [item["path"] for item in results])
+        exact = next(item for item in results if item["path"] == "/docs/exact.txt")
+        self.assertGreater(exact["rrf_score"], 0)
+
 
     def test_search_holds_lock_only_during_database_read(self):
         state = {"held": False}
@@ -601,6 +657,66 @@ class IndexFailureStatsTests(unittest.TestCase):
         )
 
 
+@unittest.skipIf(indexer is None, "indexer dependencies unavailable")
+class EmbeddingBatchTests(unittest.TestCase):
+    def test_cross_file_batch_preserves_file_and_chunk_alignment(self):
+        class Model:
+            def __init__(self):
+                self.calls = []
+
+            def encode(self, value, **_kwargs):
+                self.calls.append(list(value))
+                return [[float(index)] * 768 for index, _ in enumerate(value)]
+
+        with tempfile.TemporaryDirectory() as directory:
+            paths = []
+            for name, content in (("a.txt", "alpha"), ("b.txt", "bravo"), ("c.txt", "charlie")):
+                path = os.path.join(directory, name)
+                Path(path).write_text(content, encoding="utf-8")
+                paths.append(path)
+            rows_by_path = {}
+
+            def capture(path, rows):
+                rows_by_path[path] = rows
+
+            model = Model()
+            with mock.patch.object(indexer, "_write_index_rows", side_effect=capture), mock.patch(
+                "index_progress.is_cancelled", return_value=False
+            ):
+                counts = indexer._index_text_batch(paths, model, 2)
+
+        self.assertEqual([len(call) for call in model.calls], [2, 1])
+        self.assertEqual(counts, {path: 1 for path in paths})
+        self.assertEqual(rows_by_path[paths[0]][0]["path"], paths[0])
+        self.assertEqual(rows_by_path[paths[1]][0]["path"], paths[1])
+        self.assertEqual(rows_by_path[paths[2]][0]["path"], paths[2])
+        self.assertEqual([row["chunk_id"] for rows in rows_by_path.values() for row in rows], [0, 0, 0])
+
+    def test_text_embeddings_are_batched_and_aligned(self):
+        class Model:
+            def __init__(self):
+                self.calls = []
+
+            def encode(self, value, **_kwargs):
+                self.calls.append(value)
+                if isinstance(value, list):
+                    return [[float(index), 1.0] for index, _ in enumerate(value)]
+                return [0.0, 1.0]
+
+        model = Model()
+        with mock.patch("index_progress.is_cancelled", return_value=False):
+            vectors = indexer._encode_text_batches(model, ["a", "b", "c"], 2)
+        self.assertEqual(len(vectors), 3)
+        self.assertEqual([len(call) for call in model.calls if isinstance(call, list)], [2, 1])
+
+    def test_embedding_batches_observe_cancellation(self):
+        model = mock.Mock()
+        with mock.patch("index_progress.is_cancelled", return_value=True):
+            with self.assertRaises(InterruptedError):
+                indexer._encode_text_batches(model, ["a"], 1)
+        model.encode.assert_not_called()
+
+
 class ModelProgressTests(unittest.TestCase):
     def test_emit_model_progress_stderr_marker(self):
         import models
@@ -670,6 +786,32 @@ class ModelProgressTests(unittest.TestCase):
         self.assertEqual(captured["model_id"], str(fake_snapshot))
         self.assertTrue(captured["local_files_only"])
         offline.assert_called_once()
+
+
+class DurableRecoveryTests(unittest.TestCase):
+    def test_running_job_is_recovered_after_reconstructed_service_state(self):
+        import index_progress
+
+        with self.subTest("durable state"):
+            with tempfile.TemporaryDirectory() as directory:
+                state_path = os.path.join(directory, "index_job.json")
+                with mock.patch.object(index_progress, "JOB_STATE_FILE", state_path):
+                    index_progress.start_job("job-1", "build_index")
+                    recovered = index_progress.recover_interrupted_job()
+                    self.assertEqual(recovered["state"], "recoverable")
+                    self.assertEqual(index_progress.get_job_state()["job_id"], "job-1")
+
+    def test_completion_and_failure_are_persisted(self):
+        import index_progress
+
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = os.path.join(directory, "index_job.json")
+            with mock.patch.object(index_progress, "JOB_STATE_FILE", state_path):
+                index_progress.start_job("job-2")
+                index_progress.finish_job("failed", error="write failed")
+                state = index_progress.get_job_state()
+                self.assertEqual(state["state"], "failed")
+                self.assertEqual(state["error"], "write failed")
 
 
 if __name__ == "__main__":

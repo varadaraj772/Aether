@@ -98,6 +98,21 @@ def get_model():
     if _model is not None:
         return _model
 
+    if os.environ.get("AETHER_TEST_FAKE_MODEL") == "1":
+        class TestModel:
+            def encode(self, value, **_kwargs):
+                values = value if isinstance(value, list) else [value]
+                vectors = []
+                for item in values:
+                    text = str(item)
+                    seed = sum(ord(char) for char in text) % MODEL_DIMENSION
+                    vector = [0.0] * MODEL_DIMENSION
+                    vector[seed] = 1.0
+                    vectors.append(vector)
+                return vectors if isinstance(value, list) else vectors[0]
+        _model = TestModel()
+        return _model
+
     with _model_lock:
         if _model is None:
             local = _resolve_local_snapshot()

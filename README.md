@@ -36,6 +36,7 @@ Product overview: [`AETHER_SPEC.txt`](AETHER_SPEC.txt) · Site: [aether.varada.m
 - macOS (developed against recent macOS / Xcode toolchains)
 - Xcode
 - Python **3.10+**
+- A local Hugging Face cache containing `google/embeddinggemma-2` after first setup (the first setup requires network access)
 
 ## Quick start
 
@@ -53,6 +54,15 @@ The setup script:
 - Creates or repairs `Backend/venv`
 - Installs Python dependencies (including OCR / PDF helpers)
 - Preloads the embedding model into your Hugging Face cache (first time can take a few minutes and needs network)
+
+The verified development environment currently uses Python 3.12.13, LanceDB
+0.33.0, sentence-transformers 6.1.0, transformers 5.19.0, and PyTorch
+2.14.1. The application requires a compatible local Python environment;
+Python, dependencies, and model weights are not embedded in the app bundle.
+
+Cached-model offline startup has been verified with `HF_HUB_OFFLINE=1` and an
+isolated `AETHER_DIR`. A first run must download the model before networking
+can be disabled.
 
 Override the interpreter if needed:
 
@@ -103,9 +113,15 @@ AETHER_SPEC.txt         Product / architecture overview
 cd Backend
 ./venv/bin/python -m unittest discover -s tests -v
 
-# Package unsigned Release .app (Python venv still external)
+# Package unsigned Release .app (Python, dependencies, and model cache remain external)
 ./Scripts/package-app.sh
 ```
+
+The package script has not produced a verified app in the current environment:
+the installed Xcode Swift macro plugin reports malformed responses while
+compiling SwiftUI. It also does not sign, notarize, or embed Python,
+site-packages, or model weights. A recipient must install the prerequisites
+above and run the backend setup separately.
 
 Manual QA: [`Scripts/QA_SMOKE_CHECKLIST.txt`](Scripts/QA_SMOKE_CHECKLIST.txt)
 
@@ -128,6 +144,15 @@ Ensure OCR dependencies are installed via setup, then re-index the folder.
 **Backend exited unexpectedly**
 
 Check Console for `[Aether backend]` logs. The app attempts auto-recovery; re-index if indexing was interrupted.
+
+**Release status**
+
+The backend test suite, real bridge-process recovery, and isolated offline
+backend smoke test are verified. Aether is suitable for an early **open-source
+source release**, with the documented Python/model prerequisites. A packaged
+macOS binary is not release-ready in the current environment because the local
+Xcode toolchain's `swift-plugin-server` fails on SwiftUI macros and the runtime
+is not self-contained.
 
 ## Privacy
 

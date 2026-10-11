@@ -3,9 +3,10 @@ import os
 import sys
 import threading
 
-AETHER_DIR = os.path.join(os.path.expanduser("~"), ".aether")
+AETHER_DIR = os.environ.get("AETHER_DIR", os.path.join(os.path.expanduser("~"), ".aether"))
 PROGRESS_FILE = os.path.join(AETHER_DIR, "index_progress.json")
 CANCEL_FILE = os.path.join(AETHER_DIR, "index_cancel.flag")
+JOB_STATE_FILE = os.path.join(AETHER_DIR, "index_job.json")
 
 _lock = threading.Lock()
 _cancel_requested = False
@@ -25,6 +26,55 @@ def clear_progress():
                 os.remove(path)
         except OSError:
             pass
+
+
+def _write_job_state(**payload):
+    _ensure_dir()
+    temporary = JOB_STATE_FILE + ".tmp"
+    try:
+        with open(temporary, "w") as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, JOB_STATE_FILE)
+    except OSError:
+        try:
+            os.remove(temporary)
+        except OSError:
+            pass
+
+
+def start_job(job_id, operation="index"):
+    _write_job_state(job_id=job_id, operation=operation, state="running")
+
+
+def finish_job(state, *, error=None):
+    current = get_job_state()
+    _write_job_state(
+        job_id=current.get("job_id"),
+        operation=current.get("operation", "index"),
+        state=state,
+        error=error,
+    )
+
+
+def get_job_state():
+    try:
+        with open(JOB_STATE_FILE) as handle:
+            value = json.load(handle)
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def recover_interrupted_job():
+    """Convert a persisted running state left by a dead backend to recoverable."""
+    state = get_job_state()
+    if state.get("state") == "running":
+        state["state"] = "recoverable"
+        state["error"] = "Backend exited while indexing"
+        _write_job_state(**state)
+    return state
 
 
 def request_cancel():
